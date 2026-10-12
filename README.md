@@ -971,6 +971,14 @@ CDN: even its typeface, B612, is embedded) with:
 - two camera views (front wide-angle, RealSense colour) as H.264 over WebRTC,
   running **only while someone is watching** (see "Cameras" below);
 - stand/sit, Nav2 on/off, camera/voa on/off, "goto N m";
+- the **floor map** (§7.5): pick a floor and Load, tell him where he is
+  (I am here: press the spot, drag the way he faces), then press anywhere
+  on the map and confirm "Go here" to send him there. It shows him, the
+  saved places, the point he is going to and Nav2's route. The page gets
+  the map as the PGM the map server reads (`/map/<floor>`) and paints it
+  itself. Not there yet: zoom (a press is only as fine as the picture; on
+  a phone about half a metre on the lab map), and a new goal while one is
+  under way (Cancel first);
 - a **hold-to-drive** joystick (and WASD) built on `steer()`: the page sends
   the stick ~10×/s and the robot halts 0.3 s after the last message (a
   "dead-man" switch: released, tab closed, Wi-Fi lost → stop). Forward stops

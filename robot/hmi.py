@@ -20,11 +20,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import yaml
 from aiohttp import ClientSession, web, WSMsgType
 
 from . import protocol as P
 from .depth import sampled
 from . import person
+from . import places
 from .lite3 import BATTERY_REFUSE, BATTERY_WARN, HARD_TIMEOUT, LYING, Lite3
 from .nav import REPO, clamp, status_text
 from .protocol import Lite3Error
@@ -144,6 +146,9 @@ class Robot:
         self.det = None                         # PersonDetector while detection is on
         self.stop_asked = False                 # Cancel, for a walk to or after a person
         self.joints = None                      # name -> angle, for the 3D model
+        self.floors = []                        # the floors that have a map
+        self.floor = None                       # the loaded one, for the page: name, origin, cell size, places
+        self.target = None                      # the map point he was last sent to
         from geometry_msgs.msg import PointStamped, PoseStamped
         from nav_msgs.msg import Path
         from sensor_msgs.msg import JointState
@@ -228,6 +233,10 @@ class Robot:
             self.bot.nav_start()
             self.bot.cost_ahead(out_to=3.0, step=0.1, settle=10)
         return status_text(self.bot.goto(metres, heading_deg=degrees or None, timeout=90))
+
+    def go_point(self, x, y):
+        self.target = [round(x, 2), round(y, 2)]
+        return status_text(self.bot.go_to_point(x, y))
 
     def service(self, which, on):
         self.services[which] = getattr(P, which)(on)
@@ -376,8 +385,22 @@ class Robot:
             'person': [round(who[k], 3) for k in ('left', 'top', 'right', 'bottom')] if who else None,
             # for the 3D view, in odom: Nav2's goal and path, and where the person is
             'goal': goal, 'plan': plan, 'them': them,
+            'floors': self.floors, 'map': self.on_map(),
             'limits': LIMITS,
         }
+
+    def on_map(self):
+        """The floor map view's part of the status, in the map's frame: None with
+        no floor loaded. `why` is None while he knows where he is."""
+        if self.floor is None:
+            return None
+        b = self.bot
+        p = b.map_pose
+        going = b.goal_active()
+        return dict(self.floor, why=b.lost_why(),
+                    pose=[round(v, 2) for v in p] if p else None,
+                    target=self.target if (self.busy or '').startswith('goto map') else None,
+                    route=self.plan if going else None)       # Nav2 plans in the map frame on a floor
 
     def _plan_cb(self, m):
         step = max(1, len(m.poses) // PLAN_POINTS)
@@ -420,6 +443,20 @@ class Robot:
     def poll_slow(self):
         """systemd states and the depth scan, ~1 Hz from a thread."""
         self.services = {'camera': P.camera(), 'voa': P.voa()}
+        self.floors = self.bot.floors()
+        name = self.bot.floor
+        if name is None:
+            self.floor = None
+        else:
+            try:
+                if self.floor is None or self.floor['floor'] != name:
+                    with open(os.path.join(places.floor_dir(name), 'map.yaml')) as f:
+                        info = yaml.safe_load(f)
+                    self.floor = {'floor': name, 'res': info['resolution'], 'origin': info['origin'][:2]}
+                self.floor['places'] = [[q['name'], q['x'], q['y']] for q in places.load(name)]
+            except Exception as e:               # a floor without its files: no map view, the rest goes on
+                self.floor = None
+                self.warn('map of %s: %s' % (name, e), every=30.0)
         try:
             self.scan = [[b, None if rr is None else round(rr, 2)]
                          for b, rr in self.bot.scan()] \
@@ -531,6 +568,13 @@ class Server:
         elif k == 'goto':
             r.submit('goto %.1f m' % float(c['m']), r.goto,
                      float(c['m']), float(c.get('deg') or 0))
+        elif k == 'floor':
+            r.submit('load ' + str(c['floor']), r.bot.load_floor, str(c['floor']))
+        elif k == 'here':
+            r.submit('here', r.bot.set_pose, float(c['x']), float(c['y']), float(c.get('deg') or 0))
+        elif k == 'go_point':
+            # 'goto ...' so the page shows Cancel, as for a Go ahead
+            r.submit('goto map %.1f, %.1f' % (float(c['x']), float(c['y'])), r.go_point, float(c['x']), float(c['y']))
         elif k in ('camera', 'voa'):
             r.submit('%s %s' % (k, 'on' if c.get('on') else 'off'),
                      r.service, k, bool(c.get('on')))
@@ -556,6 +600,14 @@ class Server:
             r.voice(c.get('v'))
         elif k in ('say', 'ask', 'look'):
             r.talk(k, (c.get('text') or '').strip(), c.get('persona'))
+
+    async def floor_map(self, request):
+        """A floor's map as the map server reads it (PGM); the page paints it."""
+        try:
+            return web.FileResponse(os.path.join(places.floor_dir(request.match_info['floor']), 'map.pgm'),
+                                    headers={'Cache-Control': 'no-cache'})
+        except Lite3Error:
+            return web.Response(status=404)
 
     def gone(self):
         if not self.pages:                      # nobody came back
@@ -677,6 +729,7 @@ class Server:
         app.router.add_get('/ws', self.ws)
         app.router.add_get('/stream/front', self.stream_front)
         app.router.add_post('/whep/{cam}', self.whep)
+        app.router.add_get('/map/{floor}', self.floor_map)
         app.router.add_static('/lib', os.path.join(STATIC, 'lib'))      # three.js
         app.router.add_static('/model', os.path.join(REPO, 'urdf'))     # lite3.urdf, meshes
         runner = web.AppRunner(app)

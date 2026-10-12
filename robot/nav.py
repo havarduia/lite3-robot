@@ -33,6 +33,7 @@ LOC_STALE_S = 1.5       # locate.py speaks twice a second; quiet this long, he d
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
 ROUTE_TIMEOUT = 300.0   # s for one go_to(): 30 m takes about two minutes
 THERE_M = 0.2           # nearer than this the planner makes no path, and he is there anyway
+SHORT_M = 0.6           # "succeeded" further than this from the point is not believed (it stops 0.1 to 0.2 m off)
 CLEAR_SETTLE_S = 2.5    # the global costmap is redrawn once a second; the map and a fresh scan are back by then
 # Nav2's controller here has nothing that rewards turning towards the path: with
 # the goal behind him it stood for 20 s, then span as a "recovery" (2026-10-09,
@@ -548,7 +549,14 @@ class Nav:
                 if why:
                     raise Lite3Error('lost on the way, stopped: ' + why)
             gyaw = math.atan2(y - here[1], x - here[0]) if yaw_deg is None else math.radians(yaw_deg)
-            status = self._goal_wait(self.goal_send(x, y, gyaw, frame='map'), timeout, lost=self.lost_why)
+            for again in (True, False):
+                status = self._goal_wait(self.goal_send(x, y, gyaw, frame='map'), timeout, lost=self.lost_why)
+                short = dist(self.map_pose, (x, y))
+                if status != SUCCEEDED or short < SHORT_M:
+                    break
+                # this Nav2 can answer "succeeded" at once to the goal that follows a cancelled one
+                if not again:
+                    raise Lite3Error('Nav2 said arrived twice, %.1f m short of (%.2f, %.2f)' % (short, x, y))
         if status == SUCCEEDED and yaw_deg is not None:
             err = wrap(math.radians(yaw_deg) - self.map_pose[2])
             if abs(err) > math.radians(5):

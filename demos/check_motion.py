@@ -96,6 +96,7 @@ GOALS, CANCELS = [], []      # every goal pose the pretend Nav2 was sent, and wh
 NO_ROUTE = []                # put anything in it: the pretend planner finds no way
 CLEARS = []                  # every time the global costmap was asked to forget its marks
 POSES = []                   # every pose he was told he is at
+EARLY = []                   # one entry per goal the pretend Nav2 calls succeeded at once, unmoved
 
 
 def pretend_nav2(arrives):
@@ -121,15 +122,25 @@ def pretend_nav2(arrives):
         if name == 'compute_path_to_pose':
             return planner(node)
         goal = {}
+        def done():
+            if goal['cancelled'] or goal['early']:
+                return True
+            if arrives is None or node.t < goal['sent'] + arrives:
+                return False
+            if node.loc is not None:        # map mode: arrived means he stands on the point
+                to = goal['pose'].pose.position
+                node.loc, node.loc_odom = node.loc._replace(x=to.x, y=to.y, yaw=node.bot.map_pose[2]), node.odom
+            return True
         result = types.SimpleNamespace(
-            done=lambda: goal['cancelled'] or (arrives is not None and node.t >= goal['sent'] + arrives),
+            done=done,
             result=lambda: types.SimpleNamespace(status=nav.CANCELED if goal['cancelled'] else nav.SUCCEEDED))
         handle = types.SimpleNamespace(accepted=True, get_result_async=lambda: result,
                                        cancel_goal_async=lambda: CANCELS.append(node.t) or goal.update(cancelled=True))
         made.append(name)
         return types.SimpleNamespace(
             wait_for_server=lambda timeout_sec: True,
-            send_goal_async=lambda msg: GOALS.append(msg.pose) or goal.update(sent=node.t, cancelled=False) or types.SimpleNamespace(
+            send_goal_async=lambda msg: GOALS.append(msg.pose) or goal.update(
+                sent=node.t, cancelled=False, pose=msg.pose, early=bool(EARLY and EARLY.pop())) or types.SimpleNamespace(
                 done=lambda: True, result=lambda: handle))
 
     rclpy.action.ActionClient = client
@@ -289,6 +300,17 @@ def main():
     r, _, _ = run(lambda b: b.route_to(2.0, 5.0), **on_floor())
     assert isinstance(r, list) and len(CLEARS) == 1 and not NO_ROUTE, (r, CLEARS)
     del CLEARS[:]
+
+    # Nav2 calls a goal succeeded at once, far from it (seen after a cancelled goal): sent again, believed only once there
+    pretend_nav2(arrives=2.0)
+    before = len(GOALS)
+    EARLY.append(True)
+    r, _, _ = run(lambda b: b.go_to_point(2.0, 5.0), **on_floor())
+    assert r == nav.SUCCEEDED and len(GOALS) == before + 2, (r, len(GOALS) - before)
+    EARLY.extend([True, True])
+    r, _, _ = run(lambda b: b.go_to_point(2.0, 5.0), **on_floor())
+    assert isinstance(r, L.Lite3Error) and 'arrived twice' in str(r), r
+    pretend_nav2(arrives=None)
 
     # told where he is while a wide estimate happens to sit nearby (set down after a carry): AMCL must still hear it
     r, _, _ = run(lambda b: b.set_pose(5.0, 5.2, 90, timeout=2.0), **on_floor(locate.SPREAD))

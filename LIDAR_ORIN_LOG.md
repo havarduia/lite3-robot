@@ -1111,6 +1111,43 @@ cells. The start mark is new (tape), `here -0.2 0 0` as before.
   told: FAST-LIO2, whose run started on the mark, had him at
   (2.75, 1.92). Load average 9.3 on six cores, the panel open. This is
   task 10's corridor slide, met for the first time.
+- **Getting him out of the doorway.** `here 2.62 1.97 111` (his own
+  estimate back, with the `set_pose` fix now pulled) localized him. The
+  next `go start` stopped after 16 s and 0.4 m with "what the lidar sees
+  does not fit the map here"; a moment later he read localized again.
+  Not explained; people were standing near him in the door.
+- **Nav2 said "succeeded" 40 ms after taking a goal**, 3.3 m from it,
+  on the `go start` that followed those two cancelled goals; `go` said
+  "arrived". `go_to_point()` now sends the goal once more when
+  "succeeded" comes further than `SHORT_M` (0.6 m) from the point, and
+  raises if it happens twice. Checked on the laptop only.
+- The session ended there: he was carried to the mark and laid down,
+  Nav2 stopped with `estop`, battery 47%.
 
 The distances are his own position estimate, apart from the one by eye.
 Not done yet: three places, the wrong floor.
+
+## 20. A long walk across campus (2026-10-12)
+
+Recorded by the user and a friend from the Orin's panel, saved there as
+`long-walk-recovered_20261012_150849`: 18 minutes (1086 s), 961 m, 7925
+scans at 7.7 Hz (processing p50 up to 76 ms, max 103 ms), one IMU gap.
+The robot was lifted and carried down a staircase on the way. They
+started and ended at the lab.
+
+- The panel's saved state: "DIVERGED - jumped 21 times; stop and
+  restart". Steps between poses are 0.13 m at the median, up to 2.8 m.
+- The path drops 8 m over 95 m of walking early on (the stairs), goes to
+  -13.4 m, and ends at (-1.6, 9.9, -8.9): 10 m beside the start and
+  8.9 m under it, standing within 1 m of that point for its last 208 s.
+  So it does not close on the lab. The user's reading: it drifted.
+- The floor slicer made four maps by height: floor0 182 x 140 m (36% of
+  the poses on its free cells, around -12 m), floor1 193 x 210 m (53%,
+  around -9 m), floor2 42 x 80 m (7%), floor3 103 x 40 m (11%, the
+  level of the start). The start itself is free floor on none of them.
+  Outdoors the floor is speckle, not solid free cells.
+- Copied to the robot as floors `campus0` to `campus3`. Not loaded, not
+  tried; floor1 is about 4 million cells.
+
+For the next one: a run per level, stopped before he is lifted and
+started again standing still; slower than 0.9 m/s.

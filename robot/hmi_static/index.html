@@ -97,8 +97,8 @@ main {
   max-width: 1320px; margin: -1px auto 0; padding: 0 16px 48px;
   display: grid; column-gap: 40px; align-items: start;
   grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr);
-  grid-template-rows: auto auto auto 1fr;
-  grid-template-areas: "ahead drive nav" "ahead drive sys" "cams cams talk" "log log talk";
+  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-areas: "ahead drive nav" "ahead drive sys" "map map talk" "cams cams talk" "log log talk";
 }
 .offline main { opacity: .5; }
 section { min-width: 0; padding: 6px 0 24px; border-top: 1px solid var(--groove); }
@@ -108,6 +108,10 @@ h2 { font-size: 16px; }
 .glass { background: var(--glass); color: var(--on-glass); border-radius: 4px; overflow: hidden; }
 
 #scan { display: block; width: 100%; aspect-ratio: 4 / 3; }
+#floormap { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 72vh; touch-action: pan-y; cursor: crosshair; }
+#floormap.here { touch-action: none; }
+#map .line { margin-top: 12px; }
+#map-hint { flex: 1; min-width: 12em; }
 .readouts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 12px; }
 .readouts div { display: flex; align-items: baseline; gap: 8px; }
 .readouts dt { color: var(--ink-2); font-size: 13px; }
@@ -215,18 +219,18 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
 #log .warn { border-left-color: var(--yellow); }
 #log .error { border-left-color: var(--red); color: var(--red-ink); }
 
-#ahead { grid-area: ahead; } #drive { grid-area: drive; } #nav { grid-area: nav; } #sys { grid-area: sys; }
+#ahead { grid-area: ahead; } #drive { grid-area: drive; } #nav { grid-area: nav; } #sys { grid-area: sys; } #map { grid-area: map; }
 #cams { grid-area: cams; } #talk { grid-area: talk; } #logs { grid-area: log; }
 @media (max-width: 1199px) {
   main {
     column-gap: 32px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "ahead drive" "cams cams" "nav sys" "talk log";
+    grid-template-areas: "ahead drive" "map map" "cams cams" "nav sys" "talk log";
   }
 }
 @media (max-width: 680px) {
   .rail .in { column-gap: 12px; grid-template: "id estop" "vitals vitals" / 1fr auto; }
   .vitals { gap: 4px 18px; }
-  main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ahead" "drive" "cams" "nav" "sys" "talk" "log"; }
+  main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ahead" "drive" "map" "cams" "nav" "sys" "talk" "log"; }
 }
 
 /* B612, (c) 2012 The B612 Project Authors (github.com/polarsys/b612), SIL Open
@@ -365,6 +369,24 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
     <div class="head"><h2>Log</h2></div>
     <div id="log"></div>
   </section>
+  <section id="map">
+    <div class="head"><h2>Map</h2>
+      <span class="unit">
+        <span id="map-state" class="lamp off">No floor</span>
+        <select id="floor" aria-label="floor"></select>
+        <button class="key" id="floor-load">Load</button>
+      </span>
+    </div>
+    <div class="glass"><canvas id="floormap" aria-label="floor map: press a spot to send him there"></canvas></div>
+    <div class="line">
+      <button class="key" id="map-here" aria-pressed="false">I am here</button>
+      <span id="map-hint"></span>
+      <button class="key" id="map-no" hidden>No</button>
+      <button class="key go" id="map-ok" hidden>Go here</button>
+    </div>
+    <p class="note">Load starts Nav2 on that floor's map, and he must then be told where he is: press I am here, press the spot where he stands and drag the way he faces. After that a press on the map asks before it sends him. Grey he has never seen counts as wall. Cancel is under Navigate.</p>
+  </section>
+
 </main>
 
 <script>
@@ -475,6 +497,7 @@ function renderStatus(s) {
   if (p) Object.assign(who.style, { left: p[0] * 100 + '%', top: p[1] * 100 + '%', width: (p[2] - p[0]) * 100 + '%', height: (p[3] - p[1]) * 100 + '%' });
   notice();
   drawScan(s.scan);
+  mapStatus(s);
   if (model) model.status(s);
 }
 
@@ -542,6 +565,160 @@ function drawScan(scan) {
 const redraw = () => drawScan(lastStatus ? lastStatus.scan : undefined);    // undefined: nothing heard yet
 new ResizeObserver(redraw).observe($('scan'));
 document.fonts.ready.then(redraw);
+
+// --- floor map: where he is on it, and a press to send him somewhere ---------
+const MAP = { floor: null, img: null, rows: 0, box: null, view: null, pick: null, down: null, asked: null };
+const TAP_PX = 12;      // a press that moves further is a drag: a heading in "I am here", a scroll otherwise
+
+// The PGM the map server reads, painted once: walls solid, mapped floor faint, never-seen left as glass.
+async function loadMap(floor) {
+  const buf = new Uint8Array(await (await fetch('/map/' + encodeURIComponent(floor))).arrayBuffer());
+  const head = []; let i = 0;
+  while (head.length < 4) {                       // "P5", width, height, maxval; '#' starts a comment
+    while (buf[i] <= 32) i++;
+    if (buf[i] === 35) { while (buf[i] !== 10) i++; continue; }
+    let w = ''; while (buf[i] > 32) w += String.fromCharCode(buf[i++]);
+    head.push(w);
+  }
+  const W = +head[1], H = +head[2], px = buf.subarray(i + 1);
+  if (head[0] !== 'P5' || px.length < W * H) throw new Error('not a map');
+  const css = getComputedStyle($('floormap'));
+  const rgb = (n) => [1, 3, 5].map(k => parseInt(css.getPropertyValue(n).trim().substr(k, 2), 16));
+  const wall = rgb('--on-glass'), floorC = rgb('--trace');
+  const img = document.createElement('canvas'); img.width = W; img.height = H;
+  const g = img.getContext('2d'), d = g.createImageData(W, H);
+  const cols = new Uint32Array(W), rows = new Uint32Array(H);
+  for (let k = 0; k < W * H; k++) {
+    const v = px[k], isWall = v < 90, isFloor = v > 216;      // the map.yaml thresholds: 0.65 and 0.15
+    if (!isWall && !isFloor) continue;
+    d.data.set(isWall ? [...wall, 255] : [...floorC, 48], k * 4);
+    cols[k % W]++; rows[(k - k % W) / W]++;
+  }
+  g.putImageData(d, 0, 0);
+  // Shown: the columns and rows with more than a few mapped cells (a lone speck far off would
+  // shrink everything else), and a margin round them.
+  const FEW = 5, pad = 8, busy = (n) => n > FEW;
+  let c0 = cols.findIndex(busy), c1 = cols.length - 1 - [...cols].reverse().findIndex(busy);
+  let r0 = rows.findIndex(busy), r1 = rows.length - 1 - [...rows].reverse().findIndex(busy);
+  if (c0 < 0 || r0 < 0) { c0 = r0 = 0; c1 = W - 1; r1 = H - 1; }
+  c0 = Math.max(0, c0 - pad); r0 = Math.max(0, r0 - pad); c1 = Math.min(W - 1, c1 + pad); r1 = Math.min(H - 1, r1 + pad);
+  Object.assign(MAP, { floor, img, rows: H, box: { c0, r0, w: c1 - c0 + 1, h: r1 - r0 + 1 }, pick: null });
+  $('floormap').style.aspectRatio = Math.min(2, Math.max(0.75, MAP.box.w / MAP.box.h));
+  drawMap();
+}
+
+function mapStatus(s) {
+  const m = s.map, list = (s.floors || []).join('\n'), sel = $('floor');
+  if (sel.dataset.list !== list) {
+    sel.dataset.list = list; sel.innerHTML = '';
+    for (const f of s.floors || []) { const o = document.createElement('option'); o.value = o.textContent = f; sel.appendChild(o); }
+    if (m) sel.value = m.floor;
+  }
+  if (m && MAP.floor !== m.floor && MAP.asked !== m.floor) {
+    MAP.asked = m.floor;
+    loadMap(m.floor).catch(() => { MAP.asked = null; });      // asked again with the next status
+  }
+  if (!m) { MAP.floor = MAP.asked = MAP.img = MAP.pick = null; setHere(false); }
+  $('map-state').textContent = !m ? 'No floor' : m.why ? m.floor + ': not placed' : m.floor;
+  $('map-state').className = 'lamp' + (!m ? ' off' : m.why ? ' busy' : '');
+  drawMap();
+}
+
+function setHere(on) { lit('map-here', on); $('floormap').classList.toggle('here', on); }
+const hereOn = () => $('map-here').getAttribute('aria-pressed') === 'true';
+
+function drawMap() {
+  const s = lastStatus, m = s && s.map, cv = $('floormap'), g = cv.getContext('2d'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight, pick = MAP.pick;
+  if (!W) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(cv), col = (n) => css.getPropertyValue(n).trim();
+  g.font = '11px B612, sans-serif'; g.textAlign = 'center';
+  const ready = m && MAP.img && MAP.floor === m.floor;
+  $('map-ok').hidden = $('map-no').hidden = !(ready && pick);
+  $('map-ok').textContent = pick && pick.here ? 'Set position' : 'Go here';
+  $('map-hint').textContent = !m ? 'Pick a floor and press Load. He should be standing.'
+    : pick ? `${pick.here ? 'He is at' : 'Send him to'} ${fmt(pick.x, 1)}, ${fmt(pick.y, 1)} m` + (pick.here ? `, facing ${fmt(pick.deg, 0)}°?` : '?')
+    : hereOn() ? 'Press where he stands and drag the way he faces.'
+    : m.why ? `He cannot be sent anywhere: ${m.why}. Press I am here.`
+    : 'Press a spot to send him there.';
+  if (!ready) {
+    MAP.view = null;
+    g.fillStyle = col('--trace'); g.fillText(m ? 'Fetching the map of ' + m.floor : 'No floor loaded', W / 2, H / 2);
+    return;
+  }
+  // pixels per metre; the map's x runs right and its y up, the picture's top row is the largest y
+  const b = MAP.box, k = Math.min((W - 16) / (b.w * m.res), (H - 16) / (b.h * m.res));
+  const x0 = m.origin[0] + b.c0 * m.res, y1 = m.origin[1] + (MAP.rows - b.r0) * m.res;
+  const left = (W - b.w * m.res * k) / 2, top = (H - b.h * m.res * k) / 2;
+  const X = (x) => left + (x - x0) * k, Y = (y) => top + (y1 - y) * k;
+  MAP.view = { k, x0, y1, left, top, w: b.w * m.res, h: b.h * m.res };
+  g.imageSmoothingEnabled = false;
+  g.drawImage(MAP.img, b.c0, b.r0, b.w, b.h, left, top, b.w * m.res * k, b.h * m.res * k);
+
+  g.fillStyle = col('--dim'); g.textAlign = 'start';
+  for (const [name, x, y] of m.places || []) {                // saved places
+    g.fillRect(X(x) - 3, Y(y) - 3, 6, 6); g.fillText(name, X(x) + 7, Y(y) + 4);
+  }
+  g.strokeStyle = col('--trace'); g.lineWidth = 2; g.lineJoin = 'round';
+  if (m.route && m.route.length > 1) {                        // Nav2's route to where he is going
+    g.beginPath(); m.route.forEach(([x, y], n) => n ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))); g.stroke();
+  }
+  const ring = (x, y, r) => { g.beginPath(); g.arc(X(x), Y(y), r, 0, 2 * Math.PI); g.stroke(); };
+  if (m.target) { g.strokeStyle = col('--on-glass'); ring(m.target[0], m.target[1], 7); }
+  // him: to scale, but never too small to see. Solid while he knows where he is, a yellow outline while not.
+  const him = (x, y, yaw, solid) => {
+    const u = Math.max(k, 30), NOSE = 0.27, TAIL = 0.34, HALF = 0.225;
+    g.save(); g.translate(X(x), Y(y)); g.rotate(-yaw);
+    g.beginPath(); g.rect(-TAIL * u, -HALF * u, (NOSE + TAIL) * u, 2 * HALF * u); g.rect(NOSE * u, -HALF * u / 2, 0.09 * u, HALF * u);
+    if (solid) { g.fillStyle = col('--on-glass'); g.fill(); } else { g.strokeStyle = col('--yellow'); g.lineWidth = 2; g.stroke(); }
+    g.restore();
+  };
+  if (m.pose) him(m.pose[0], m.pose[1], m.pose[2], !m.why);
+  if (pick) {                                                 // what the next key press would do
+    g.strokeStyle = col('--yellow'); g.lineWidth = 2;
+    if (pick.here) him(pick.x, pick.y, pick.deg * Math.PI / 180, false);
+    else { g.setLineDash([5, 4]); ring(pick.x, pick.y, 9); g.setLineDash([]); }
+  }
+}
+new ResizeObserver(drawMap).observe($('floormap'));
+
+// A press on the map: the point in map metres, or null off the mapped part.
+function mapPoint(e) {
+  const v = MAP.view; if (!v) return null;
+  const r = $('floormap').getBoundingClientRect();
+  const x = (e.clientX - r.left - v.left) / v.k, y = (e.clientY - r.top - v.top) / v.k;
+  return x < 0 || y < 0 || x > v.w || y > v.h ? null : { x: v.x0 + x, y: v.y1 - y };
+}
+$('floormap').addEventListener('pointerdown', (e) => {
+  const p = mapPoint(e); if (!p) return;
+  MAP.down = { ...p, cx: e.clientX, cy: e.clientY };
+  if (hereOn()) $('floormap').setPointerCapture(e.pointerId);
+});
+const mapDrag = (e, done) => {
+  const d = MAP.down; if (!d) return;
+  const dx = e.clientX - d.cx, dy = e.clientY - d.cy, far = Math.hypot(dx, dy) > TAP_PX;
+  if (hereOn()) {                                             // the drag is the way he faces; a plain press keeps his heading
+    const now = lastStatus && lastStatus.map && lastStatus.map.pose;
+    const deg = far ? Math.atan2(-dy, dx) * 180 / Math.PI : now ? now[2] * 180 / Math.PI : 0;
+    MAP.pick = { x: d.x, y: d.y, deg: Math.round(deg), here: true };
+  } else if (done && !far && !(lastStatus.map || {}).why) MAP.pick = { x: d.x, y: d.y };
+  if (done) MAP.down = null;
+  drawMap();
+};
+$('floormap').addEventListener('pointermove', (e) => { if (hereOn()) mapDrag(e, false); });
+$('floormap').addEventListener('pointerup', (e) => mapDrag(e, true));
+$('floormap').addEventListener('pointercancel', () => { MAP.down = null; });    // the page scrolled instead
+$('map-here').addEventListener('click', () => { setHere(!hereOn()); MAP.pick = null; drawMap(); });
+$('map-no').addEventListener('click', () => { MAP.pick = null; drawMap(); });
+$('map-ok').addEventListener('click', () => {
+  const p = MAP.pick; if (!p) return;
+  const at = { x: +p.x.toFixed(2), y: +p.y.toFixed(2) };
+  send(p.here ? { cmd: 'here', ...at, deg: p.deg } : { cmd: 'go_point', ...at });
+  MAP.pick = null; setHere(false); drawMap();
+});
+$('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });
 
 // --- controls ------------------------------------------------------------
 document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => {
