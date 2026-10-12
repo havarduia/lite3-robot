@@ -1023,8 +1023,8 @@ Map mode:
   side check, probably. Not reproduced.
 - Nothing is tuned on the floor: `locate.py`'s limits, AMCL's noise, the
   height band of `/scan_walls` in other rooms.
-- Only 2 m routes in one room. Not tried: through the door, a closed
-  door, carrying him mid-route, the wrong floor, a long corridor, glass.
+- Through the door and a closed door are done (section 19). Not tried:
+  carrying him mid-route, the wrong floor, a long corridor, glass.
 - The load with the panel open, and why the camera driver reads 80 to
   92% of a core in map mode against 57 to 70% mapless.
 - A sharp corner in the middle of a route is left to Nav2, whose
@@ -1046,3 +1046,71 @@ Older:
 - The relay assumes the robot stands level when the Live run starts.
 - `person.follow_nav` stops about 0.1 m closer since the goal tolerance
   went back to 0.15 m; not re-tested.
+
+## 19. Through the door, map `lab2` (2026-10-12)
+
+The `lab` map was the room alone, and unmapped cells are walls, so there
+was no route out. A new Live run (230 s, by handheld: round the room, out
+of the door, along the corridor, back; it ended 0.04 m from where it
+started) was saved on the Orin as `lab2_20261012_132548` and copied to
+the robot as floor `lab2`: room, door, about 20 m of corridor, 0.1 m
+cells. The start mark is new (tape), `here -0.2 0 0` as before.
+
+- People walked in the corridor during the run. Two blobs just north of
+  the door are left on the map and the planner finds no route north past
+  them (`route_to(3.4, 2.4)`: none). South of the door is clean.
+- Mark to the corridor, `go 3.4 0.5`: route 6.4 m through the door at
+  about (2.3, 2.3), arrived in about 90 s, own estimate (3.43, 0.62),
+  0.12 m from the target.
+- Back, `go start`: 70 s, own estimate 0.14 m from the saved place, the
+  final turn to the saved heading done. By eye he stood about 0.15 m to
+  the right of the tape.
+- Door closed, `go 3.4 0.5` from the mark: he set off, walked 0.8 m,
+  the planner then found no path; Nav2 waited and asked again three
+  times and gave up. `go` returned "aborted - no path" 30 s after the
+  start, with him standing still and still localized. No spinning.
+- Battery 85% to 76% over the three runs and the standing between them.
+
+- **A door seen shut stayed shut.** Back on the mark with the door open
+  again, `go 3.4 0.5` answered "no route". The closed door had been
+  marked on the global costmap from 0.8 m ahead of the mark (within the
+  3.0 m `obstacle_range`); from the mark it is about 3.4 m away, at the
+  edge of the 3.5 m `raytrace_range`, so nothing cleared it. Clearing
+  the global costmap by hand brought the route back at once. Fix:
+  `route_to()` now forgets the old marks once and asks again before it
+  refuses (`_forget_marks()`, `CLEAR_SETTLE_S` 2.5 s). Checked on the
+  laptop (`check_motion.py`). On the robot the new code clears in 2.7 s,
+  finds routes afterwards, and a point that really is cut off costs one
+  clear and is then refused. The stale door itself did not come back
+  when the same steps were repeated: that time the planner answered
+  with a 314-point route (about 16 m; the usual one is 124) before
+  anything was cleared, and he then walked the usual way in 75 s.
+  Someone was walking in front of him on purpose during that run (the
+  user, afterwards), which would explain a route planned round them; it
+  was not checked. The map itself has no way round the door.
+- **Carried mid-route.** Lifted 8 s into `go 3.4 0.5`, after about 1.2 m,
+  and set down about 1.2 m away 3 s later (basic state 22 while in the
+  air, 6 again by himself). `/odom_fused` followed the carry. `go`
+  raised "lost on the way, stopped: no usable lidar scan" and he stood
+  still. The map estimate, (0.37, -1.00, -5 deg), then stayed "too
+  wide": AMCL does not narrow while he stands, so he needs `here` again.
+- **`here` did nothing after the carry.** `set_pose()` held the pose back
+  when the old estimate lay within 1 m of the new one, and the wide one
+  left by the carry did (he was put back on the mark). AMCL's spread was
+  0.97 m and 0.82 rad and it never got an `/initialpose`. Now the pose is
+  always sent once. With that he localized on the mark at once.
+- Arrived twice more at (3.4, 0.5): the last time at (3.44, 0.35) facing
+  180 deg, where 8 deg was asked for and the first arrival faced -22.
+  That was the run with the person in front of him. Not looked into.
+- **Lost in the doorway on the way back.** After standing some minutes
+  in the corridor, `go start` stopped 35 s in with "lost on the way,
+  stopped: its position estimate is too wide", at (2.62, 1.98, 111 deg),
+  in the door. AMCL's spread there: 0.19 m in x, 0.51 m in y (the limit,
+  `SPREAD_XY_M`, is 0.5), 0.17 rad. y is along the corridor, whose walls
+  say nothing about it. The estimate itself was right as far as can be
+  told: FAST-LIO2, whose run started on the mark, had him at
+  (2.75, 1.92). Load average 9.3 on six cores, the panel open. This is
+  task 10's corridor slide, met for the first time.
+
+The distances are his own position estimate, apart from the one by eye.
+Not done yet: three places, the wrong floor.

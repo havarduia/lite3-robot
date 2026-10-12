@@ -33,6 +33,7 @@ LOC_STALE_S = 1.5       # locate.py speaks twice a second; quiet this long, he d
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
 ROUTE_TIMEOUT = 300.0   # s for one go_to(): 30 m takes about two minutes
 THERE_M = 0.2           # nearer than this the planner makes no path, and he is there anyway
+CLEAR_SETTLE_S = 2.5    # the global costmap is redrawn once a second; the map and a fresh scan are back by then
 # Nav2's controller here has nothing that rewards turning towards the path: with
 # the goal behind him it stood for 20 s, then span as a "recovery" (2026-10-09,
 # 57 s for 2 m). So he faces along the route himself before Nav2 gets the goal.
@@ -448,8 +449,9 @@ class Nav:
         while time.time() < end:
             loc = self._loc()
             taken = loc is not None and int(loc.state) != locate.NO_POSE and dist((loc.x, loc.y), (x, y)) < 1.0
-            # Again until AMCL has it: it may not be listening yet, or still hold an older pose.
-            if not taken and (said is None or time.time() - said > 3.0):
+            # Once whatever he believes (near and wide, after a carry, looks taken); then again
+            # until AMCL has it: it may not be listening yet, or still hold an older pose.
+            if said is None or (not taken and time.time() - said > 3.0):
                 self._pose_pub.publish(m)
                 said = time.time()
             if taken and self.localized and self._node.grid is not None:
@@ -460,9 +462,27 @@ class Nav:
 
     _plan_client = None
 
-    def route_to(self, x, y, timeout=10.0):
+    _clear_client = None
+
+    def _forget_marks(self, timeout=5.0):
+        """Empty Nav2's global costmap; the map and what the sensors see now
+        come back at its next update. False if Nav2 did not do it."""
+        from nav2_msgs.srv import ClearEntireCostmap
+
+        if self._clear_client is None:
+            self._clear_client = self._node.create_client(
+                ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+        if not self._clear_client.wait_for_service(timeout_sec=timeout):
+            return False
+        if not self._wait(self._clear_client.call_async(ClearEntireCostmap.Request()).done, timeout):
+            return False
+        time.sleep(CLEAR_SETTLE_S)
+        return True
+
+    def route_to(self, x, y, timeout=10.0, again=True):
         """The way Nav2's planner finds from where he is to a map point, as
-        [(x, y), ...] on the map. Raises if there is none."""
+        [(x, y), ...] on the map. Raises if there is none, having asked twice:
+        the second time with the costmap's old marks forgotten."""
         from geometry_msgs.msg import PoseStamped
         from nav2_msgs.action import ComputePathToPose
         from rclpy.action import ActionClient
@@ -486,6 +506,9 @@ class Nav:
             raise Lite3Error('the planner did not answer in %.0f s' % timeout)
         poses = answer.result().result.path.poses if answer.result().status == SUCCEEDED else []
         if not poses:
+            # a mark beyond the lidar's clearing range outlives what made it: a door seen shut stays shut
+            if again and self._forget_marks():
+                return self.route_to(x, y, timeout, again=False)
             raise Lite3Error('no route to (%.2f, %.2f): something is in the way, or it is cut off from here' % (x, y))
         return [(p.pose.position.x, p.pose.position.y) for p in poses]
 

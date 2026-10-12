@@ -60,6 +60,16 @@ class World:
     def get_clock(self):
         return types.SimpleNamespace(now=lambda: types.SimpleNamespace(to_msg=Time))
 
+    def create_publisher(self, kind, topic, depth):     # /initialpose
+        return types.SimpleNamespace(publish=POSES.append)
+
+    def create_client(self, srv, name):     # the costmap's clear service: a 'stale' mark goes, a wall stays
+        def call(request):
+            CLEARS.append(name)
+            NO_ROUTE[:] = [v for v in NO_ROUTE if v != 'stale']
+            return types.SimpleNamespace(done=lambda: True)
+        return types.SimpleNamespace(wait_for_service=lambda timeout_sec: True, call_async=call)
+
 
 class Bot(L.Lite3):
     nav_running = True                      # no pgrep: the pretend Nav2 below is always up
@@ -84,6 +94,8 @@ def run(move, **setup):
 
 GOALS, CANCELS = [], []      # every goal pose the pretend Nav2 was sent, and when one was cancelled
 NO_ROUTE = []                # put anything in it: the pretend planner finds no way
+CLEARS = []                  # every time the global costmap was asked to forget its marks
+POSES = []                   # every pose he was told he is at
 
 
 def pretend_nav2(arrives):
@@ -124,6 +136,8 @@ def pretend_nav2(arrives):
     sys.modules['nav2_msgs'] = sys.modules['nav2_msgs.action'] = types.SimpleNamespace(
         NavigateToPose=types.SimpleNamespace(Goal=types.SimpleNamespace),
         ComputePathToPose=types.SimpleNamespace(Goal=types.SimpleNamespace))
+    sys.modules['nav2_msgs.srv'] = types.SimpleNamespace(
+        ClearEntireCostmap=types.SimpleNamespace(Request=types.SimpleNamespace))
     return made
 
 
@@ -269,7 +283,17 @@ def main():
     assert 'not standing' in refused(lambda b: b.go_to_point(2.0, 5.0), state={'basic': 1, 'battery': 80}, **on_floor())
     NO_ROUTE.append(True)
     assert 'no route' in refused(lambda b: b.go_to_point(2.0, 5.0), **on_floor())       # cut off: refused before a step
-    del NO_ROUTE[:]
+    assert len(CLEARS) == 1, CLEARS         # ... after one look at a costmap without its old marks
+    del NO_ROUTE[:], CLEARS[:]
+    NO_ROUTE.append('stale')                # a door seen shut and since opened: the second look finds the way
+    r, _, _ = run(lambda b: b.route_to(2.0, 5.0), **on_floor())
+    assert isinstance(r, list) and len(CLEARS) == 1 and not NO_ROUTE, (r, CLEARS)
+    del CLEARS[:]
+
+    # told where he is while a wide estimate happens to sit nearby (set down after a carry): AMCL must still hear it
+    r, _, _ = run(lambda b: b.set_pose(5.0, 5.2, 90, timeout=2.0), **on_floor(locate.SPREAD))
+    assert isinstance(r, L.Lite3Error) and 'too wide' in str(r) and len(POSES) == 1, (r, POSES)
+    del POSES[:]
 
     # lost on the way: the goal is dropped and he stops, he does not walk on a wrong position
     r, halted, _ = run(lambda b: b.go_to_point(2.0, 5.0),

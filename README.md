@@ -685,7 +685,9 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   refuses to start without it and stops, raising, if it is lost on the
   way. Sliding along a corridor is what it cannot see.
 - **Facing the route.** `go_to_point()` asks the planner for the route
-  first (`route_to()`; no route, no start) and, if it sets off more than
+  first (`route_to()`; no route, no start; before it says so it empties
+  the global costmap once and asks again, because a door seen shut from
+  further off than the lidar clears stays shut there) and, if it sets off more than
   60° from where he faces, turns him with `turn()` before Nav2 gets the
   goal. Left to itself this Nav2 stands for 20 s and then spins as a
   "recovery": its controller has nothing that rewards turning towards a
