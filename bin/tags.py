@@ -217,12 +217,14 @@ def check():
     cols = np.where((pg[rows[0]] == 0))[0]
     mm = (cols[-1] - cols[0] + 1) / (DPI / 25.4)
     assert abs(mm - TAG_M * 1000) < 0.5, mm
-    # the real camera file: loads, and a tag 1 m straight along the lens axis is 1 m ahead of the
-    # lens and below it by the camera's pitch
+    # the real camera file: loads, and a point 1 m along the lens axis is 1 m out from the lens,
+    # raised by the camera's (upward) pitch
     cam = front_camera()
     assert cam['K'][0, 0] > 300 and cam['T'] is not None and 0.2 < cam['delay_s'] < 0.4, cam
     p = in_base(cam['T'], np.eye(3), np.array([0, 0, 1.0]))[:3, 3]
-    assert abs(p[0] - (0.271 + math.cos(0.129))) < 1e-6 and abs(p[2] - (-0.006 - math.sin(0.129))) < 1e-6, p
+    pitch = -0.353                                               # the camera looks 20 deg up
+    assert abs(p[0] - (0.271 + math.cos(pitch))) < 1e-6 and abs(p[2] - (-0.006 - math.sin(pitch))) < 1e-6, p
+    assert p[2] > 0, 'a camera looking up sees a point on its axis above itself'
     assert calibrated(np.array([[400, 200], [500, 200], [500, 300], [400, 300.0]]), cam['valid'])
     assert not calibrated(np.array([[100, 200], [200, 200], [200, 300], [100, 300.0]]), cam['valid'])
     print('tags: check passed')

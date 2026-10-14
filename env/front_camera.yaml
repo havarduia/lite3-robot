@@ -13,8 +13,10 @@ D: [0.02061, -0.00247, -0.00040, -0.00034, -0.10929]
 # corners fall outside it is not used. The edges of a ~100 deg lens bend most.
 valid: {x: [310, 1000], y: [150, 525]}
 delay_s: 0.29        # from the scene to a frame's arrival on the Jetson (task 8c, section 29)
-# Where the camera sits on base_link (m, rad; REP-103: pitch positive = nose down), from
-# the robot's own mesh (urdf/meshes_hd/torso.STL, which is in base_link): the lens ring at
-# x 0.271, y 0.00, z -0.006, its face tilted 7.4 deg down. The lens itself is not modelled,
-# so the pitch is the ring's; check it with a tag at a taped distance (plan task 8d).
-mount: {x: 0.271, y: 0.0, z: -0.006, roll: 0.0, pitch: 0.129, yaw: 0.0}
+# Where the camera sits on base_link (m, rad; REP-103: pitch positive = nose down).
+# Position from the robot's own mesh (urdf/meshes_hd/torso.STL, which is in base_link): the
+# lens ring at x 0.271, y 0.00, z -0.006. Pitch measured, not from the mesh (its ring tilts
+# 7.4 deg down, but the lens is not modelled): an upright tag 1.00 m ahead along the floor,
+# robot standing level, read 20.2 deg of tilt, which is the camera looking 20 deg UP; with that
+# the tag came out 1.007 m ahead along the floor (LIDAR_ORIN_LOG.md section 30).
+mount: {x: 0.271, y: 0.0, z: -0.006, roll: 0.0, pitch: -0.353, yaw: 0.0}

@@ -1739,5 +1739,45 @@ down. The lens itself is an open hole in the mesh, so the real optical
 axis may differ a little from the ring's tilt. Written to
 `env/front_camera.yaml` as `mount` (x 0.271, z -0.006, pitch 0.129 rad);
 `bin/tags.py` now loads the file (`front_camera()`, task 8b) and checks a
-tag lies inside the calibrated area (`calibrated()`). Still to do: a tag at
-a taped 1.0 m in front of the lens, which checks distance and pitch.
+tag lies inside the calibrated area (`calibrated()`).
+
+The check with a tag (id 9, 14 cm) standing upright 1.00 m ahead of the
+lens, measured along the floor; robot standing, level (tilt 0, 0). Twelve
+frames, spread 1 mm. Straight from the lens: 1.017 m. The tag's face
+leaned 20.2 deg in the picture. I first read that as the camera pointing
+20 deg down: a sign error. It is the camera looking **20 deg up** (the
+RealSense looks 20 deg down); the frames agree (ceiling in the top third
+of the picture, a door handle about 1 m up in the middle from about 4 m).
+The mesh's 7.4 deg is the ring round the lens, not the camera. With pitch
+-0.353 rad (up) in `env/front_camera.yaml`, the whole chain puts the tag
+1.007 m ahead of the lens along the floor (taped 1.00), 0.011 m to the
+side, 0.45 m above the floor, facing him square (0.0 deg from upright,
+0.8 deg turned). The user then measured the tag's centre at 0.425 m above
+the floor, not 0.45: either base_link stands about 0.29 m up rather than
+the assumed 0.32 m (then the pitch is right), or the pitch is off by about
+1.4 deg (21.6 deg up). A second reading at 2.00 m separates them: a wrong
+height stays 2.5 cm, a wrong pitch grows to about 5 cm. Not done (the user
+could not set the tag at 2 m), and not needed for what the tags are for:
+a pitch error moves a tag's estimate mostly up or down; along the floor
+it moves it by about the tag's height off the lens axis times the error,
+0.13 m x 1.4 deg = 3 mm. Left at 20.2 deg up. To settle it some day: the
+body's underside is 0.054 m below base_link in the mesh, so its height
+off the floor while standing gives base_link's.
+
+## 31. The front camera in every run (plan task 8e, 2026-10-14)
+
+`robot/frontcam.py`: reads the front camera's RTSP stream with OpenCV, every
+frame (so arrival times stay true), saves 2 a second as JPEG (quality 85)
+with "arrival_time NNNNN.jpg" lines in `frames.txt`. After a stall the next
+save is due one period after the last, so a burst of buffered frames is
+not all saved. Self-check with a pretend camera. It runs on the **Orin**:
+decoding costs 60% of a core there (6 cores, about a third busy), and the
+Jetson has no room. `bin/run.py` copies it over with the load sampler and
+stops it by pid; `--local` skips it.
+
+One-minute test, robot standing still, tag 9 still 1 m in front of him:
+133 frames in 68 s (1.93 a second, gaps 0.50-0.54 s), 61% of an Orin core,
+11 MB a minute (about 330 MB for a 30 min run). Read back through
+`env/front_camera.yaml`: tag 9 in 27 of 27 frames checked, 1.279 m ahead
+and 0.011 m left of base_link, spread 3 mm (the live check gave 1.278 and
+0.011).

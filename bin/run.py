@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Record a run on all three robot computers. Run on the laptop.
 
-    bin/run.py start <name> [--minutes 40]    load on all three, a bag on the perception computer
+    bin/run.py start <name> [--minutes 40]    load on all three, a bag on the perception computer,
+                                              the front camera (2 frames a second) on the Orin
     bin/run.py note "arrived 0.07 m"          a remark, stamped with the laptop's clock
     bin/run.py stop                           stop, fetch into logs/<date>_<name>/, clean up
     bin/run.py ... --local                    the same with the laptop as all three (a dry run)
@@ -32,6 +33,7 @@ ROBOT_ENV = 'source ~/robot/env/lite3_env.sh >/dev/null 2>&1'
 LOCAL_ENV = 'source /opt/ros/jazzy/setup.bash; export ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1; unset CYCLONEDDS_URI'
 STOP_WAIT_S = 15        # a bag closes its file on SIGINT; give it this long
 CLOCK_SAMPLES = 20
+FRONT_PER_S = 2         # front camera frames kept a second: enough for tags, ~70 kB each
 
 
 def routes(via):
@@ -112,6 +114,7 @@ def start(name, minutes, via):
             'laptop_commit': subprocess.run(['git', '-C', REPO, 'log', '-1', '--oneline'],
                                             capture_output=True, text=True).stdout.strip()}
     loadwatch = open(os.path.join(REPO, 'robot', 'loadwatch.py'), 'rb').read()
+    frontcam = open(os.path.join(REPO, 'robot', 'frontcam.py'), 'rb').read()
     topics = open(os.path.join(REPO, 'env', 'runlog_topics.txt'), 'rb').read()
     for host, route in routes(via).items():
         d = remote_dir(name, host)
@@ -119,6 +122,10 @@ def start(name, minutes, via):
         meta['clock_offset_s'][host], meta['clock_error_s'][host] = clock_offset(route)
         sh(route, detached(d, 'loadwatch', 'timeout %d python3 %s/loadwatch.py %s/load.jsonl %d 2'
                            % (cap, d, d, cap)))
+        if host == 'orin' and route is not None:    # the front camera, decoded where there is room
+            sh(route, 'cat > %s/frontcam.py' % d, stdin=frontcam)
+            sh(route, detached(d, 'frontcam', 'timeout %d python3 %s/frontcam.py %s/front %d %s'
+                               % (cap, d, d, cap, FRONT_PER_S)))
         if host == 'jetson':
             sh(route, 'cat > %s/topics.txt' % d, stdin=topics)
             env = LOCAL_ENV if route is None else ROBOT_ENV
@@ -145,7 +152,7 @@ def current():
 
 
 STOP = '''d={d}
-for p in bag:INT loadwatch:TERM; do f=$d/${{p%:*}}.pid; [ -f $f ] && kill -${{p#*:}} $(cat $f) 2>/dev/null; done
+for p in bag:INT loadwatch:TERM frontcam:TERM; do f=$d/${{p%:*}}.pid; [ -f $f ] && kill -${{p#*:}} $(cat $f) 2>/dev/null; done
 for i in $(seq {wait}); do alive=0
   for f in $d/*.pid; do [ -f $f ] && kill -0 $(cat $f) 2>/dev/null && alive=1; done
   [ $alive = 0 ] && break; sleep 1; done
@@ -169,7 +176,7 @@ def stop():
         if route is not None and host in EXTRA:
             sh(route, EXTRA[host].format(d=d, t=int(meta['start'])), check=False)
         os.makedirs(os.path.join(folder, host), exist_ok=True)
-        data = sh(route, 'tar -C %s -cf - --exclude=loadwatch.py --exclude=topics.txt .' % d)
+        data = sh(route, 'tar -C %s -cf - --exclude=loadwatch.py --exclude=frontcam.py --exclude=topics.txt .' % d)
         subprocess.run(['tar', '-C', os.path.join(folder, host), '-xf', '-'], input=data, check=True)
         sh(route, 'rm -rf %s; rmdir /tmp/runlog/%s /tmp/runlog 2>/dev/null; true' % (d, meta['name']))
     meta['stop'] = time.time()
