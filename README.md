@@ -697,6 +697,13 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   made at each start from the mapless file (`env/nav2_map_params.py`), so
   the tuning of §7.1 is the only copy. Grey on the map (never seen) is a
   wall to the planner: routes stay on floor that was mapped as free.
+- **Telling him where he is:** `here x y deg` takes the pose as a tap on
+  the map, ±0.3 m. `here x y deg fit` is for a pose taken from
+  `demos/check_map.py`'s best fit, already checked against the walls:
+  AMCL is told ±0.1 m. AMCL's motion noise is 0.1 (was 0.3, set for leg
+  odometry before FAST-LIO2 corrected it): at 0.3 its estimate never
+  narrowed and every turn in the corridor made him "lost"
+  (`LIDAR_ORIN_LOG.md` section 28).
 - **Routes are planned on the map and the lidar only.** The global
   costmap has no depth camera and no sonars (since 2026-10-14); the local
   costmap, which steers, keeps both. With them in the global one, a depth

@@ -28,8 +28,11 @@ AMCL = {
     'max_beams': 120,
     'min_particles': 500,
     'max_particles': 3000,
-    # leg odometry slips more than wheels; not tuned on the floor yet
-    'alpha1': 0.3, 'alpha2': 0.3, 'alpha3': 0.3, 'alpha4': 0.3, 'alpha5': 0.3,
+    # Motion noise. 0.3 was for slipping leg odometry; /odom_fused is FAST-LIO2-corrected
+    # since 2026-10-08. At 0.3 the estimate never narrowed (0.30 m from a hand-set pose,
+    # 0.43 m after a walk, fit 0.9-1.0 all along) and any turn took it past locate.py's
+    # 0.5 m: "lost" at every corridor turn (LIDAR_ORIN_LOG.md section 28).
+    'alpha1': 0.1, 'alpha2': 0.1, 'alpha3': 0.1, 'alpha4': 0.1, 'alpha5': 0.1,
     'update_min_d': 0.15,
     'update_min_a': 0.15,
     'resample_interval': 1,
@@ -147,6 +150,7 @@ recoveries_server:
     assert out['recoveries_server']['ros__parameters']['global_frame'] == 'odom'
     assert out['map_server']['ros__parameters']['yaml_filename'] == '/maps/f/map.yaml'
     assert out['amcl']['ros__parameters']['base_frame_id'] == 'base_link'
+    assert all(out['amcl']['ros__parameters']['alpha%d' % i] == 0.1 for i in range(1, 6))
     # written and read back it is the same, types included (a float must not come back a string)
     assert changed(out, yaml.safe_load(yaml.safe_dump(out))) == []
     print('nav2_map_params ok')

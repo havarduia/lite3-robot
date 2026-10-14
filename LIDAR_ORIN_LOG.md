@@ -1522,3 +1522,67 @@ outside the door: where two people stood while `lab2` was recorded
 between the door and them, not in the door frame. The fix is the one
 already planned: record `lab2` again with the corridor empty (it then goes
 through `floor_free.py` and `lio_clean.py`'s ghost removal on the Orin).
+
+## 26. The lidar waits for the clock (task 12a, 2026-10-14)
+
+The flood of section 22 came back on the next boot: driver started at
+16:16:39 by the Orin's clock, NTP set it 30 min forward at 16:46:31, and
+`/livox/lidar` ran at 2,084 msg/s. With the user's yes: a systemd drop-in,
+`/etc/systemd/system/livox-driver.service.d/wait-clock.conf` (repo copy
+`env/livox-driver-wait-clock.conf`): `After=time-sync.target`, and before
+the driver starts, wait up to 90 s for `timedatectl`'s NTPSynchronized,
+then start anyway (handheld mode has no internet). `TimeoutStartSec=300`,
+because the unit's own waits (address, first message) plus this exceed the
+90 s default. daemon-reload, restart: `/livox/lidar`, `/scan`,
+`/scan_walls` at 10.0 Hz. The wait itself is first tested at the next boot.
+
+## 27. `lab2b`: the room and corridor mapped again (2026-10-14)
+
+A new tape mark in the open part of the lab (spot and heading), away from
+the parked robot and the table. The lidar was checked at 10 Hz first
+(section 26). The relay's auto-started Live run reported 5.7 deg of tilt
+(it had started while he settled after standing up), so it was stopped
+(saved as `discard-startup_*`, not needed) and a fresh one started on the
+mark: tilt 0.1 deg. The user drove with the handheld round the room, out
+of the left door, along the corridor and back onto the mark, corridor
+empty. Saved with one floor as `lab2b_20261014_165759`: 148 s, 34.7 m,
+tilt 0.2 deg, no jumps, ended 7 cm from where it started; people walking
+past removed by `lio_clean.py` (`ghosts.ply`).
+
+Installed as a new floor `lab2b` (`get_map.sh ... floor0 lab2b`; `lab2`
+untouched, its saved places belong to the old mark): 14.8 x 20.2 m, free
+10,221 cells (746 of them from `floor_free.py`), unknown 18,139, wall
+1,536. No blobs outside the door. Mark to the far end of the corridor:
+the narrowest point is at (1.5, 2.3), by the door, with 0.40 m from his
+centre to the nearest wall (old `lab2`: 0.29-0.30 m; needs more than
+0.25). That is a door about 0.9 m wide on the map: the user's tape says
+0.92 m.
+
+The lidar is 0.2 m ahead of base_link, so on the mark base_link is at
+about (-0.2, 0, 0). Not loaded or driven yet.
+
+## 28. Why every corridor turn made him "lost" (2026-10-14)
+
+First drive on `lab2b` (`logs/2026-10-14_lab2b-first`): mark to the
+corridor (2.6, -2.0) arrived 0.13 m off; the way back stopped as "lost"
+at the turn to face the route, twice, the second time straight after
+`here` from the lidar fit. From `/localized` in the bag:
+
+| | spread | fit |
+|---|---|---|
+| after `here` (told +-0.3 m) | 0.30 m | |
+| arriving in the corridor after 7 m | 0.43 m | 0.95-1.00 |
+| after the turn to face the route | 0.51-0.57 m: lost | 0.86-0.99 |
+| afterwards, standing | 0.57 m, frozen | |
+
+AMCL's estimate never narrowed although the scan fitted the map almost
+perfectly; any turn took it past `locate.SPREAD_XY_M` (0.5 m). Standing
+still it cannot recover: AMCL updates only after 0.15 m or 0.15 rad of
+motion. Its motion noise (`alpha1`-`alpha5` 0.3) was set for slipping leg
+odometry; odometry has been FAST-LIO2-corrected since 2026-10-08.
+
+Changed, with the user's yes: `alpha1`-`alpha5` 0.3 -> 0.1
+(`env/nav2_map_params.py`), and a pose checked against the walls is told
+to AMCL as +-0.1 m / 0.1 rad instead of a tap's +-0.3 m / 0.26 rad
+(`set_pose(..., std=nav.FIT_POSE_STD)`; CLI `here x y deg fit`).
+Self-checks pass. Not on the robot yet.

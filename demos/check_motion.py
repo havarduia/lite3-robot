@@ -347,6 +347,12 @@ def main():
     # told where he is while a wide estimate happens to sit nearby (set down after a carry): AMCL must still hear it
     r, _, _ = run(lambda b: b.set_pose(5.0, 5.2, 90, timeout=2.0), **on_floor(locate.SPREAD))
     assert isinstance(r, L.Lite3Error) and 'too wide' in str(r) and len(POSES) == 1, (r, POSES)
+    assert abs(POSES[0].pose.covariance[0] - nav.POSE_STD[0] ** 2) < 1e-9, POSES[0].pose.covariance[0]   # a tap: wide
+    del POSES[:]
+    # a pose checked against the walls (demos/check_map.py's best fit) is told to AMCL as narrow
+    run(lambda b: b.set_pose(5.0, 5.2, 90, timeout=2.0, std=nav.FIT_POSE_STD), **on_floor(locate.SPREAD))
+    c = POSES[0].pose.covariance
+    assert abs(c[0] - nav.FIT_POSE_STD[0] ** 2) < 1e-9 and abs(c[35] - nav.FIT_POSE_STD[1] ** 2) < 1e-9, (c[0], c[35])
     del POSES[:]
 
     # lost on the way: the goal is dropped and he stops, he does not walk on a wrong position

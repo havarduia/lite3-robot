@@ -31,6 +31,7 @@ NAV_NEVER = ('jetson2motion', 'transfer_ros2', 'start_transfer',
 LETHAL = 99
 LOC_STALE_S = 1.5       # locate.py speaks twice a second; quiet this long, he does not know where he is
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
+FIT_POSE_STD = (0.1, 0.1)   # and one checked against the walls (demos/check_map.py's best fit)
 ROUTE_TIMEOUT = 300.0   # s for one go_to(): 30 m takes about two minutes
 THERE_M = 0.2           # nearer than this the planner makes no path, and he is there anyway
 SHORT_M = 0.6           # "succeeded" further than this from the point is not believed (it stops 0.1 to 0.2 m off)
@@ -483,7 +484,7 @@ class Nav:
             raise Lite3Error('no way from %s to %s: %s' % (frame, target, self.lost_why() or 'no map pose'))
         return join(fix, (x, y, yaw)) if target == 'map' else join(inv(fix), (x, y, yaw))
 
-    def set_pose(self, x, y, yaw_deg, timeout=30.0):
+    def set_pose(self, x, y, yaw_deg, timeout=30.0, std=POSE_STD):
         """Tell him where he is on the loaded floor's map, roughly: within about
         half a metre and 20 degrees. Returns once robot/locate.py agrees and
         Nav2, which was waiting for this, has finished starting. Raises if what
@@ -499,8 +500,8 @@ class Nav:
         m.pose.pose.position.x, m.pose.pose.position.y = float(x), float(y)
         m.pose.pose.orientation.z = math.sin(math.radians(yaw_deg) / 2.0)
         m.pose.pose.orientation.w = math.cos(math.radians(yaw_deg) / 2.0)
-        m.pose.covariance[0] = m.pose.covariance[7] = POSE_STD[0] ** 2
-        m.pose.covariance[35] = POSE_STD[1] ** 2
+        m.pose.covariance[0] = m.pose.covariance[7] = std[0] ** 2
+        m.pose.covariance[35] = std[1] ** 2
         end, said = time.time() + timeout, None
         while time.time() < end:
             loc = self._loc()

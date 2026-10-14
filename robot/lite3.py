@@ -38,8 +38,8 @@ from std_msgs.msg import (Float64, Float64MultiArray,  # noqa: E402
 from . import locate                                   # noqa: E402
 from . import protocol as P                            # noqa: E402
 from .depth import Depth, sampled                      # noqa: E402
-from .nav import (LETHAL, Nav, clamp, dist,            # noqa: E402
-                  status_text, wrap)
+from .nav import (FIT_POSE_STD, LETHAL, POSE_STD, Nav,  # noqa: E402
+                  clamp, dist, status_text, wrap)
 from .protocol import ACTIONS, Lite3Error              # noqa: E402,F401
 
 MAX_TILT_DEG = 14.0      # STICK_PITCH full scale, see protocol.py
@@ -802,7 +802,7 @@ def _cli():
         print(__doc__)
         print('commands: status stand sit auto walk <m> turn <deg> scan '
               'nav-start nav-stop goto <m> cost estop [--disarm] action <%s>\n'
-              'on a floor map: floors, load <floor>, here <x> <y> <deg>, places, '
+              'on a floor map: floors, load <floor>, here <x> <y> <deg> [fit], places, '
               'save <name> [x y deg], forget <name>, go <name>, go <x> <y> [deg]'
               % '|'.join(ACTIONS))
         return
@@ -839,7 +839,9 @@ def _cli():
         elif cmd == 'load':
             bot.load_floor(args[1]); print('floor %s loaded; now: here <x> <y> <deg>' % args[1])
         elif cmd == 'here':
-            bot.set_pose(*map(float, args[1:4])); time.sleep(0.5); print(bot.status())
+            # 'fit' after the numbers: they are check_map.py's best fit, so AMCL is told they are good
+            std = FIT_POSE_STD if args[4:5] == ['fit'] else POSE_STD
+            bot.set_pose(*map(float, args[1:4]), std=std); time.sleep(0.5); print(bot.status())
         elif cmd == 'places':
             for p in bot.places():
                 print('%-24s (%.2f, %.2f, %.0f deg)' % (p['name'], p['x'], p['y'], p['yaw_deg']))
