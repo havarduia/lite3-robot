@@ -1456,3 +1456,69 @@ Live, user's go, handheld ready: `turn -130` refused ("would touch
 something 65 deg in"), pose unchanged at (0.04, 0.01, 3 deg); `turn -30`
 turned, 3 to -28 deg. Not yet seen: whether depth or sonar marks refuse
 turns in the open that are fine.
+
+## 25. Floor maps with the real floor (task 13b, 2026-10-14)
+
+How the Orin's `map_walls.py` labels a cell: wall where its column of
+points is 1 m or taller, free where the column holds any point, unknown
+where it holds none. Live FAST-LIO2 clouds are sparse (10 cm), so open
+floor came out speckled with unknown cells (`lab6` from the Orin: 24,870
+free, 90,488 unknown, 3,922 wall). The robot reads unknown as a wall, and
+his half-width round each speckle closed rooms and doorways.
+
+`env/floor_free.py` (run by `env/get_map.sh` before `walked_free.py`, for
+one-level runs): an unknown cell becomes free where the run's own cloud
+(`gravity_aligned.ply`, same frame as the map) has a point within 0.12 m
+of the floor under the nearest path pose (path height minus the lidar's
+0.46 m), then where it is a pinhole in free space (5 x 5 closing). Walls
+are never touched. The Orin is unchanged. `get_map.sh` now keeps the
+replaced map as `map.pgm.prev`/`map.yaml.prev` and takes `JUMP=` to work
+over the robot's own Wi-Fi.
+
+Both floors re-made on the robot from their 10-12 runs:
+
+| | free cells before | after | where his centre can be (0.25 m from walls and unknown) |
+|---|---|---|---|
+| `lab6` | 24,870 (+ walked strip) | 29,012 | 13,585 -> 20,420 cells (+50%) |
+| `lab2` | 8,505 (+ walked strip) | 9,661 | |
+
+The narrowest point of a route (widest route, its least clearance):
+
+| route | old robot map | new map |
+|---|---|---|
+| `lab2` mark -> (3.4, 0.5), the left door | 0.35 m | 0.30 m |
+| `lab6` mark -> hallway (-9.86, 8.30) | 0.38 m | 0.38 m |
+| `lab6` mark -> (3.26, -4.36) | 0.38 m | 0.38 m |
+
+The `lab2` door got narrower, not wider: 594 cells that were free on the
+robot's old `lab2` are walls on the Orin's map, and the new pipeline keeps
+walls. 594 is exactly what `walked_free.py` added on 10-12, so it looks as
+if the version used then freed wall cells within 0.6 m of his path (the
+door frame); the present one does not. The door on the map: at (2.8, 1.9)
+about 0.8 m from wall to wall, between a long wall and a large shape that
+is very likely the open door leaf (2 m tall, so a wall). 0.30 m of
+clearance against his 0.25 m half-width with padding: 5 cm per side,
+against AMCL errors of 10-15 cm. Maps do not fix that; the footprint's
+0.05 m padding (if his body allows) and localization at doors do.
+
+Not yet driven on the new maps.
+
+### The `lab2` door: 92 cm real, and what narrows the way (same day)
+
+The user measured the left door: about 92 cm. Margin for his 0.5 m (with
+padding): 21 cm per side, not the map's 5 cm.
+
+Tried and dropped: thinning walls by a cell where floor shows inside a wall
+cell (`thin_walls` in `floor_free.py`). Drawn over the Orin's `lab2`,
+nearly every wall cell has floor-height points in it: walls stand on the
+floor, so the test cannot tell a wall that clips its cell from a real one,
+and it shaved every thick wall's edge. Gain at the narrow point was 0.29 to
+0.31 m. Removed before use; the robot's maps never had it.
+
+What the picture shows instead: his path leaves the room at about
+(2.7, 1.9) and runs up beside a large wall mass at x 3.3 to 4.3, just
+outside the door: where two people stood while `lab2` was recorded
+(section 19 notes, the "two blobs"). The route's narrowest point is
+between the door and them, not in the door frame. The fix is the one
+already planned: record `lab2` again with the corridor empty (it then goes
+through `floor_free.py` and `lio_clean.py`'s ghost removal on the Orin).
