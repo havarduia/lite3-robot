@@ -1151,3 +1151,197 @@ started and ended at the lab.
 
 For the next one: a run per level, stopped before he is lifted and
 started again standing still; slower than 0.9 m/s.
+
+## 21. The panel's map view on the robot, and map `lab3` (2026-10-12)
+
+- The Map section of the panel (README 10, the feature list) ran on the
+  robot the evening it was written: `load lab2` 16 s, "I am here"
+  localized him in 2 s, and a press on the map sent `goto map 3.3, 1.2`.
+  He walked from the mark to (1.5, 1.6) and Nav2 gave up with "aborted -
+  no path" 30 s after the start, as at a closed door. Whether the door
+  was shut was not confirmed. Battery 30%.
+- `lab3_20261012_160546`, copied to the robot as floor `lab3`: 148 m,
+  2897 poses, biggest step 0.12 m, 47 x 29 m, a 42 m corridor and two
+  rooms. 215 m2 of floor connected at 0.2 m clearance, 97% of the walked
+  path inside it. The cells within 1.3 m of the run's start are unseen.
+- The run ended (-5.3, 0.2) from its start although the user walked back
+  to it: drift on the way back (the user), all of it along the corridor's
+  direction. What was drawn after the slip is then 5.3 m off from what
+  was drawn before, so the lab end of the map may hold two copies of the
+  same walls. Not checked against a live scan.
+- `lab6_20261012_161859`, floor `lab6`: 73 m one way (start in the lab
+  area, end in the hallway 20.7 m off), biggest step 0.11 m, 42 x 28 m.
+  On its start spot the wall scan fits 0.99 at (-0.2, 0, 0), but a press
+  on the panel's map had given (0.51, 1.00), 1.2 m off, and that does
+  not fit: the map view needs zoom.
+- **Localized, and no route anywhere.** The global costmap read 100
+  under him: the slicer had left the cells round the run's start unseen
+  (9 of 81 free within 0.5 m), and unseen is a wall. `get_map.sh` now
+  makes the walked path floor (`env/walked_free.py`). 0.3 m either side
+  was not enough: with the 0.45 m inflation only a one-cell lane was
+  left and he stood at its end (cost 99). At 0.6 m the cost under him is
+  29 and the planner finds routes from the start to the passage
+  (16.3 m), both rooms (27.0 and 30.9 m) and the hallway end (32.8 m).
+  None of them walked yet.
+
+## 22. Load on all three computers, and a lidar flood (2026-10-14)
+
+Read-only checks for `.planning/plans/compute-distribution.md` task 1, all
+three computers reached through the robot's hotspot (`ssh -J
+ysc@192.168.2.1`). Robot lying down, about 5 min after boot, no Nav2, no
+panel.
+
+### The lidar driver was publishing every network packet
+
+| | flooding | after `systemctl restart livox-driver` |
+|---|---|---|
+| `/livox/lidar` | 2,070 msg/s, 96 points each | 10.0 Hz, 20,160 points |
+| `/scan`, `/scan_walls` | ~2,080 msg/s each | 10.0 Hz |
+| `lio_relay.py send` (Orin) | ~100% of a core | 2.6% |
+| `livox_ros_driver2` (Orin) | 50% | 18-25% |
+| two `pointcloud_to_laserscan` (Orin) | 31% each | 7% each |
+| `lio_relay` (Jetson) | 41% | 30% |
+
+Cause, as far as it is shown: the Orin booted with its clock 1.9 days
+behind (its journal for this boot starts "Oct 12 16:38"). The driver
+started at 24.8 s, and `systemd-timesyncd` stepped the clock forward
+about 12 s later ("Initial synchronization ... 1.pool.ntp.org"). After
+that step the driver's 10 Hz frame grouping broke and every packet went
+out as its own message. A restart, with the clock already right, fixed
+it. On 10-08 and 10-12 the same setup gave 10 Hz, so it depends on
+whether NTP arrives before or after the driver starts. Without internet
+(handheld mode) the clock is wrong for the whole run instead; whether that
+floods too is not known.
+
+Not fixed for good yet: the driver should start only after the clock is
+synced, with a timeout so it still starts with no internet. That needs
+the user's OK (Orin).
+
+How to spot it: `ros2 topic hz /livox/lidar` on the Orin (domain 42)
+shows ~2,000 instead of 10, or `lio_relay.py send` near a full core in
+`top`.
+
+### Motion computer (RK3588)
+
+- Cores 1-4 are Cortex-A76 at 2.2 GHz; 0 and 5-7 are A55 at 1.8 GHz.
+  Governor `performance`. 3.9 GB memory. Python 3.8.10.
+- `jy_exe` runs real-time threads (SCHED_FIFO) pinned to all four A76
+  cores: priority 98 on core 2, 95 and 45 on core 4, several on core 1,
+  one on core 3. No `isolcpus`. `sched_rt_runtime_us` 950000.
+- Lying down: 82% idle. `track` (person detector) 75% of a core at nice
+  -19, the camera's GStreamer pipeline 37%, `mediamtx` 12%, `jy_exe` 12%.
+- So the free capacity is the four A55 cores. Nav2 does not go here.
+
+### Jetson
+
+- `/camera/imu`: 1 publisher, 0 subscribers. VOA's launch and yaml files
+  mention no IMU (only a fake one in `debug_launch.py`). The camera IMU
+  can be switched off.
+- A full GNOME desktop runs (gdm auto-login, `gnome-shell` 9-36%, Xorg,
+  pulseaudio); default target `graphical.target`. Nothing of ours needs it.
+- Lying down after the restart: camera driver 50%, `lio_relay` 30%,
+  `sensor_checker` 18%, `jetson2motion` 14%; load average 1.6.
+
+### Orin
+
+- 6 x Cortex-A78AE at 1.7 GHz, 7.6 GB memory, Python 3.10.12.
+- FAST-LIO2: `config/mid360.yaml` has `pcd_save_en: true` and
+  `path_en: true`, but `~/bin/README.md` says `pcd_save_en` and `map_en`
+  are off for runs, so the override lives elsewhere (not found yet). The
+  guess that saving the map causes the 35 min lag (section 17) is
+  therefore probably wrong; still unexplained.
+
+### What recording a run costs (plan task 6)
+
+`bin/run.py` through the hotspot, robot lying down (state 98), no Nav2,
+no panel, 2 min each (`logs/2026-10-14_record-cost*`):
+
+| | with `/tf` in the bag | without |
+|---|---|---|
+| recorder (`ros2 bag record`, the `ros2` process) | 13% of a core | 11% |
+| `loadwatch.py` | about 2% on each computer | same |
+| Jetson busy, mean over cores | 29.8% | 31.3% |
+
+`/tf` left out: 50 Hz of mostly `odom -> base_link`, which `/odom_fused`
+already is. Lying down without Nav2 the Jetson's biggest are the camera
+driver 47%, `robot.lio_relay` 30%, `sensor_checker` 18%, `jetson2motion`
+15%. The motion computer is 18% busy (`track` 76%, camera 37%); the Orin
+9-12% (lidar driver 24%, the two scan nodes 14% together).
+
+## 23. First baseline runs, and why routes close (2026-10-14)
+
+The standard run of `.planning/plans/compute-distribution.md` (task 7),
+recorded with `bin/run.py` and read with `bin/report.py`. Runs in
+`logs/2026-10-14_baseline` (floor `lab2`) and `logs/2026-10-14_baseline-lab6`.
+User stood him up and said "go" to each walk; the panel was open.
+
+### `lab2`: out through the door and back
+
+| | |
+|---|---|
+| walk 1, `go 3.4 0.5` | arrived 0.15 m from the goal (the tolerance), 70 s; ended facing 160 deg (no heading asked) |
+| walk 2, `go start` | stopped before moving: the turn to face the route took AMCL's spread past 0.5 m in the corridor ("lost on the way"). Fit there 0.96, so the pose was right, only the spread had grown. `here` at the same pose, then it arrived |
+| arrival at the mark | tape: 15.5 cm left, 13.5 cm forward = **0.21 m**; he believed about 11 cm |
+| walk 3 | refused: "point (3.40, 0.50) is in a wall" with the corridor empty. `go x y` checks the goal cell before it starts and, unlike `route_to`, does not clear old marks and look again |
+| then | Nav2 killed at 20:58:02 by the panel's E-STOP, pressed by accident (the panel's terminal says so) |
+| walk 3 again | walked 3 m, then "no path" from just inside the door, 9 planner failures; clearing the global costmap did not help |
+
+Start pose: the lidar's best fit put him 15 cm behind the mark and 6 deg
+turned ((-0.35, -0.05, 6)); `here -0.2 0 0` pushed AMCL off (fit 0.67).
+Set the start from `demos/check_map.py`'s best fit, not from the mark's
+nominal coordinates. Later at the mark the tape said 13.5 cm forward where
+the lidar said 3 cm (sideways both about 16 cm): the saved mark or the body
+point measured from is 10 cm off. Measure from one agreed body point.
+
+### `lab6`: to the hallway (-9.86, 8.30)
+
+The mark is at (0, 0, 5 deg) on `lab6` (fit 0.99), not (-0.2, 0, 0); saved
+as place `start`. One walk: aborted "no path" 4 m out, at (0.30, -2.85).
+
+The room has two doors to the corridor. The left one was open, the right
+one closed (both are open on the map). The planner first took the left
+door (24 m), lost that route within 4 s, then took the right door (32 m)
+and lost it when the low lidar saw the closed door at (2.3, -4.5).
+
+### Why the left door closed while it was open
+
+Drawn from the recorded global costmap, plan and low `/scan`:
+
+- The map's free floor is little more than the strip he walked when it was
+  recorded (`walked_free.py`, 0.6 m either side); unseen is a wall. The
+  left doorway is a channel about 0.3 m wide between lethal cells, much
+  narrower than the door.
+- The low lidar marks the real wall beside it (x 2.55 to 2.7), and every
+  mark makes his half-width (0.25 m with padding) lethal. With AMCL 10 to
+  15 cm off (as measured at the mark), the marks land on the channel. Route
+  cells turned lethal at 162 s and 173 s with the door open.
+- In map mode the GLOBAL costmap also holds the depth camera (STVL, 15 s
+  memory) and the sonars: static, stvl, range, scan, inflation. The cells
+  at (1.71, 0.66) turned lethal with no low-lidar return within 0.45 m, so
+  probably the depth camera. Not proven: depth is not recorded.
+
+The same mechanism fits `lab2`'s walk 3. Not phantom marks: a map that
+leaves no room, plus real marks and a small localization error.
+
+### Load and other numbers
+
+| | `lab2` run (29 min) | `lab6` run (5 min) |
+|---|---|---|
+| Jetson busy, mean / max | 67% / 98% | 78% / 97% |
+| Jetson load average, max | 16.6 | 15.2 |
+| camera messages dropped | 2,671 | 961 |
+| camera driver | 63% of a core | 74% |
+| `robot.lio_relay` / `robot.hmi` | 36% / 33% | 37% / 37% |
+| AMCL spread max | 0.52 m | 2.06 m (during the handheld walk back) |
+| Orin: `lio_live.py` / FAST-LIO2 | 63% / 44% | 72% / 49% |
+
+- The Orin panel's `lio_live.py` uses more CPU than FAST-LIO2 itself.
+- Leg odometry missed the handheld walk back on `lab6`: at the end
+  `/odom_fused` and `/lio_odom` were 0.03 m from the start (true: he was
+  back on the mark), `/leg_odom2` 3.09 m. Not looked into.
+- The bag's first version had no low `/scan` (added for `lab6`) and
+  `/cmd_vel` from `Lite3` is not recorded: the recorder asks for reliable,
+  `Lite3` publishes best effort (QoS warning on start).
+- `bin/report.py` fixes made from these runs: walked length counts 5 cm
+  steps (50 Hz standing jitter had doubled it), and `python3 -u x.py` is
+  named `x.py`.

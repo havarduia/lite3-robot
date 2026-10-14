@@ -668,12 +668,20 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   perception computer. Record it with the Orin panel's Live run, not
   "Record & map" (LIDAR_ORIN_LOG.md section 17). Its origin is where the
   lidar was when the run started; `base_link` was 0.20 m behind that.
+  On the way `get_map.sh` makes the cells within 0.6 m of the walked path
+  free floor (`env/walked_free.py`; walls stay walls): the slicer leaves
+  the run's start and cluttered rooms unseen, and unseen is a wall here.
 - **What runs** (`env/start_nav2_map.sh <floor>`): the mapless stack with
   its global costmap moved to the `map` frame and the map as its first
   layer, a map server, AMCL, and `robot/locate.py`. The parameters are
   made at each start from the mapless file (`env/nav2_map_params.py`), so
   the tuning of §7.1 is the only copy. Grey on the map (never seen) is a
   wall to the planner: routes stay on floor that was mapped as free.
+- **Routes are planned on the map and the lidar only.** The global
+  costmap has no depth camera and no sonars (since 2026-10-14); the local
+  costmap, which steers, keeps both. With them in the global one, a depth
+  mark nobody saw on the lidar (it lasts 15 s) closed an open doorway
+  that the map already made narrow (`LIDAR_ORIN_LOG.md` section 23).
 - **Two steps to start.** Nav2 does not finish starting until AMCL has
   been told where he is, so `load_floor()` returns with him not
   localized, and `set_pose()` returns when he is and Nav2 is ready.
@@ -1350,6 +1358,70 @@ not restart the run.
 - The stale-odometry stop: `demos/check_motion.py`, on the fake robot.
 - Cost on the perception computer: 33% of a core, robot standing, Nav2
   up, scans passing (2026-10-09).
+
+### 10.8 Measuring a run: `bin/run.py`, `bin/report.py`, `bin/tags.py`
+
+To judge a Nav2 or FAST-LIO2 test by numbers instead of by eye. All three
+run on the laptop. Plan: `.planning/plans/compute-distribution.md`.
+
+```
+bin/run.py start door-test          # start recording on all three computers
+bin/run.py note "arrived 0.07 m"    # remarks, stamped with the laptop's clock
+bin/run.py stop                     # stop, fetch into logs/<date>_door-test/, clean up
+bin/report.py logs/2026-10-14_door-test
+bin/report.py --compare logs/<before> logs/<after>
+```
+
+What `start` does, on each computer, detached and under `timeout`
+(`--minutes`, default 40), so a dropped ssh ends nothing early and leaves
+nothing running past the limit:
+
+- **all three**: `robot/loadwatch.py` (copied over; stdlib only, so it runs
+  on the motion computer and the Orin, which have no repo) writes CPU per
+  core, load average, free memory and the top 15 processes every 2 s;
+- **perception computer**: `ros2 bag record` of the topics in
+  `env/runlog_topics.txt` (odometry from all three sources, AMCL,
+  `/localized`, `/cmd_vel`, `/plan`, goal status, `/scan_walls`, state).
+  Light topics only: no clouds, no images. A Python logger would cost about
+  17% of a core per 50 Hz topic here; the recorder is C++.
+
+`stop` stops them by pid (never by name), adds `nav2.log` and the relay's
+journal (perception computer) and the lidar services' journal (Orin), and
+copies everything into `logs/<date>_<name>/<computer>/`. It reaches the
+robot through the hotspot when the laptop is on it, else over Tailscale.
+`--local` does the whole thing with the laptop as all three computers
+(the bag on DDS domain 77), as a dry run.
+
+Clocks: `start` records each computer's offset from the laptop, and the
+report puts everything on the laptop's clock. The bag is read by the time
+each message arrived, not by its stamp (stamps use the legs' steady clock).
+
+`report.py` writes `report.txt` and `report.png` into the run's folder:
+
+- **per goal**: result, time, distance walked against the planned length,
+  recoveries, the most frequent Nav2 warnings, and the arrival error if a
+  note after the goal says "arrived 0.07 m";
+- **odometry**: each source's track from its own first pose, the
+  start-to-end gap (the loop closure error when the run ends where it
+  began), and how far `/odom_fused` and `/lio_odom` drift from the legs;
+- **localization**: AMCL spread against `locate.SPREAD_XY_M`, scan fit,
+  share of the time localized;
+- **relay**: falls back to leg odometry, FAST-LIO2's worst lag;
+- camera messages dropped, battery, and the **load** of all three computers
+  with their busiest processes.
+
+`--compare` puts the numbers of two runs side by side: the same walk
+before and after a change.
+
+**AprilTags** (`bin/tags.py`) are the ground truth: `make` writes ten
+AprilTag 36h11 sheets (14 cm black square) and `board` a ChArUco board
+for calibrating the front camera. Print at 100% and measure the 10 cm
+scale bar. Do not trim the sheets: the detector needs two cells of white
+round the tag and the paper is that margin (with one cell it misses the
+tag on anything darker than paper). In the synthetic check a tag is found
+to 1 mm at 0.6 m, 4 mm at 1.5 m and 2.5 cm at 3 m, 45° off. Detecting
+tags in a run's video and the camera calibration are tasks 8c-8g of the
+plan, not built yet.
 
 ---
 

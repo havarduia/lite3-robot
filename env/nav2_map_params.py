@@ -5,8 +5,8 @@
     python3 env/nav2_map_params.py check
 
 Map mode is the mapless stack with a floor map under it: the global costmap
-moves to the `map` frame and gets the map as its first layer, and a map
-server and AMCL are added. Everything else is the mapless file as it stands
+moves to the `map` frame, gets the map as its first layer and loses the
+depth camera and the sonars, and a map server and AMCL are added. Everything else is the mapless file as it stands
 on the robot, so its tuning (env/nav2-mapless-lite3.patch) is done once.
 """
 import copy
@@ -65,6 +65,11 @@ UNKNOWN_COST_VALUE = 50
 # The global costmap takes the map's size and cell (0.05 m), about four
 # times the cells of the mapless one for a 35 m floor, so it is redone and
 # sent less often. The local costmap, which steers, is untouched.
+# Long routes are planned on the map and the lidar only. The depth camera
+# (15 s memory) and the sonars stay in the local costmap, which steers. In the
+# global one they closed doorways that were open: a mark nobody saw on the
+# lidar turned a route lethal (LIDAR_ORIN_LOG.md section 23).
+GLOBAL_DROPPED = ('stvl_obstacle_layer', 'range_layer')
 GLOBAL_UPDATE_HZ = 1.0
 GLOBAL_PUBLISH_HZ = 0.5
 
@@ -78,7 +83,9 @@ def map_params(mapless, map_yaml):
     g['rolling_window'] = False             # the whole floor, not a window round the robot
     g['update_frequency'] = GLOBAL_UPDATE_HZ
     g['publish_frequency'] = GLOBAL_PUBLISH_HZ
-    g['plugins'] = ['static_layer'] + g['plugins']
+    g['plugins'] = ['static_layer'] + [x for x in g['plugins'] if x not in GLOBAL_DROPPED]
+    for x in GLOBAL_DROPPED:
+        g.pop(x, None)
     g['static_layer'] = dict(STATIC_LAYER)
     g['unknown_cost_value'] = UNKNOWN_COST_VALUE
     p['map_server'] = {'ros__parameters': {'use_sim_time': False, 'yaml_filename': map_yaml}}
@@ -100,7 +107,8 @@ bt_navigator:
   ros__parameters: {global_frame: odom, robot_base_frame: base_link}
 local_costmap:
   local_costmap:
-    ros__parameters: {global_frame: odom, rolling_window: True, plugins: ["scan_layer", "inflation_layer"], update_frequency: 5.0}
+    ros__parameters: {global_frame: odom, rolling_window: True, update_frequency: 5.0,
+                      plugins: ["stvl_obstacle_layer", "range_layer", "scan_layer", "inflation_layer"]}
 global_costmap:
   global_costmap:
     ros__parameters:
@@ -111,7 +119,9 @@ global_costmap:
       update_frequency: 5.0
       publish_frequency: 2.0
       track_unknown_space: False
-      plugins: ["scan_layer", "inflation_layer"]
+      plugins: ["stvl_obstacle_layer", "range_layer", "scan_layer", "inflation_layer"]
+      stvl_obstacle_layer: {plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer", voxel_decay: 15.0}
+      range_layer: {plugin: "nav2_costmap_2d::RangeSensorLayer"}
       scan_layer: {plugin: "nav2_costmap_2d::ObstacleLayer", scan: {max_obstacle_height: 2.0}}
 planner_server:
   ros__parameters: {GridBased: {allow_unknown: true, tolerance: 0.15}}
@@ -125,9 +135,13 @@ recoveries_server:
     assert changed(mapless, out) == sorted([
         '/amcl', '/map_server', '/bt_navigator/ros__parameters/global_frame',
         g + 'global_frame', g + 'rolling_window', g + 'plugins', g + 'static_layer',
-        g + 'update_frequency', g + 'publish_frequency', g + 'unknown_cost_value']), changed(mapless, out)
+        g + 'update_frequency', g + 'publish_frequency', g + 'unknown_cost_value',
+        g + 'stvl_obstacle_layer', g + 'range_layer']), changed(mapless, out)
     gp = out['global_costmap']['global_costmap']['ros__parameters']
-    assert gp['plugins'] == ['static_layer', 'scan_layer', 'inflation_layer']   # the map first, obstacles over it
+    assert gp['plugins'] == ['static_layer', 'scan_layer', 'inflation_layer']   # the map first, the lidar over it
+    assert 'stvl_obstacle_layer' not in gp and 'range_layer' not in gp
+    lp = out['local_costmap']['local_costmap']['ros__parameters']
+    assert lp['plugins'][:2] == ['stvl_obstacle_layer', 'range_layer']          # depth and sonars still steer
     assert gp['global_frame'] == 'map' and gp['rolling_window'] is False
     assert out['local_costmap'] == mapless['local_costmap']     # steering stays in odom
     assert out['recoveries_server']['ros__parameters']['global_frame'] == 'odom'
