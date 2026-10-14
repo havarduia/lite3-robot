@@ -1345,3 +1345,54 @@ leaves no room, plus real marks and a small localization error.
 - `bin/report.py` fixes made from these runs: walked length counts 5 cm
   steps (50 Hz standing jitter had doubled it), and `python3 -u x.py` is
   named `x.py`.
+
+## 24. Task 13a on the robot: routes on the map and the lidar only (2026-10-14)
+
+Commit `d4dd7df`: in map mode the global costmap is `static_layer,
+scan_layer, inflation_layer` (checked in `/tmp/nav2_map.yaml`); the local
+one keeps depth and sonars. Same standard route as the morning's `lab2`
+run (section 23), left door open, right closed, fresh boot, 95% battery.
+Run `logs/2026-10-14_13a`; start pose from `check_map.py` (fit 1.00 at
+(-0.20, 0.00, 4 deg), on the mark this time).
+
+| | morning (section 23) | 13a |
+|---|---|---|
+| walks that arrived | 2 of 3 | 4 of 4 |
+| walk 1, out through the door | 70 s | 23 s |
+| walk 3, out again | "goal in a wall", then "no path" | arrived, 47 s |
+| "lost" stop in the corridor turn | once | once (walk 4); `here` from the lidar fit, then arrived |
+| arrival at the mark (tape) | 0.21 m | 0.11 m and 0.21 m |
+| camera messages dropped | 2,671 | **1** |
+| Jetson busy, mean | 67% | 73% |
+| AMCL spread, max | 0.52 m | 0.53 m |
+
+- The dropped camera messages were the global costmap's depth layer
+  waiting for transforms: with depth out of it they are gone.
+- Jetson busy did not fall. The two runs are not alike (the morning one
+  had minutes lying down and standing idle, which pull the mean down), and
+  the camera driver read 78% of a core against 63%. Load is for phase 2.
+- Arrival is measured from the front of the body from now on. The second
+  return was 21 cm to the left, dead on forward, a little turned; he
+  believed about 14 cm.
+- The corridor turn still loses him: AMCL's spread reaches the 0.5 m limit
+  and the estimate drifts (22 cm from the lidar's best fit at the door).
+  Not something 13a touches: building-navigation plan task 10.
+
+### No sideways movement for Nav2 (same day)
+
+He crab-walked a lot and slid left into a table leg on a return to the
+start. Recorded `/cmd_vel` of the 13a run: commands more sideways than
+forward in 24%, 40%, 12% and 51% (the return with the leg) of each walk,
+up to 0.20 m/s. The controller allowed `max_vel_y` 0.2 but `min_vel_y`
+-0.02: left only. With `PreferForward.strafe_x` at 0.05 (section 14) its
+strafe penalty almost never applies. The leg (front-left, at the table's
+corner, visible in the front camera) is where nothing looks: too thin and
+too close for `/scan` (range_min 0.4 m), outside the depth camera's ±43°
+and the front sonar's ±33°.
+
+Changed with the user's yes: `min_vel_y` 0.0, `max_vel_y` 0.0,
+`vy_samples` 1 in both copies of `lite_nav2_mapless.yaml` (src and
+install, backups `*.pre-novy`), and in `env/nav2-mapless-lite3.patch`
+(regenerated: the vendor file recovered by reversing the old patch, which
+round-trips; the new patch reproduces the robot's file). Takes effect at
+the next floor load. Not run yet.

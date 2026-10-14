@@ -136,7 +136,7 @@
          inflate_unknown: False
          inflate_around_unknown: False
  
-@@ -203,8 +261,11 @@
+@@ -203,16 +261,19 @@
        movement_time_allowance: 10.0
      goal_checker:
        plugin: "nav2_controller::SimpleGoalChecker"
@@ -150,6 +150,25 @@
        stateful: True
  
      FollowPath:
+       plugin: "dwb_core::DWBLocalPlanner"
+       min_vel_x: -0.02
+-      min_vel_y: -0.02
++      min_vel_y: 0.0     # was -0.02; no sideways (2026-10-14): he crab-walked left, where no sensor looks
+       max_vel_x: 1.0
+-      max_vel_y: 0.2
++      max_vel_y: 0.0     # was 0.2 (left only: min was -0.02)
+       max_vel_theta: 0.8
+       min_speed_xy: 0.01
+       max_speed_xy: 1.0
+@@ -225,7 +286,7 @@
+       decel_lim_theta: -0.8
+ 
+       vx_samples: 20
+-      vy_samples: 6
++      vy_samples: 1     # was 6; one sample, vy = 0
+       vtheta_samples: 40
+ 
+       sim_time: 3.0
 @@ -236,7 +297,7 @@
        critics: ["PreferForward", "GoalDist", "PathDist", "RotateToGoal", "BaseObstacle"]
  
