@@ -25,6 +25,7 @@ from aiohttp import ClientSession, web, WSMsgType
 
 from . import protocol as P
 from .depth import sampled
+from . import mapmaker
 from . import person
 from . import places
 from .lite3 import BATTERY_REFUSE, BATTERY_WARN, HARD_TIMEOUT, LYING, Lite3
@@ -147,6 +148,7 @@ class Robot:
         self.stop_asked = False                 # Cancel, for a walk to or after a person
         self.joints = None                      # name -> angle, for the 3D model
         self.floors = []                        # the floors that have a map
+        self.mapping = None                     # while Record map runs: {'dist', 't'} of the Orin's run
         self.floor = None                       # the loaded one, for the page: name, origin, cell size, places
         self.target = None                      # the map point he was last sent to
         from geometry_msgs.msg import PointStamped, PoseStamped
@@ -233,6 +235,24 @@ class Robot:
             self.bot.nav_start()
             self.bot.cost_ahead(out_to=3.0, step=0.1, settle=10)
         return status_text(self.bot.goto(metres, heading_deg=degrees or None, timeout=90))
+
+    def map_record(self):
+        r = mapmaker.start(self.bot)
+        self.mapping = mapmaker.recording() or {'dist': 0.0, 't': 0}
+        return r
+
+    def map_save(self, name):
+        try:
+            return mapmaker.save(name)
+        finally:
+            self.mapping = None
+            self.floors = self.bot.floors()
+
+    def map_cancel(self):
+        try:
+            return mapmaker.cancel()
+        finally:
+            self.mapping = None
 
     def go_point(self, x, y):
         self.target = [round(x, 2), round(y, 2)]
@@ -385,7 +405,7 @@ class Robot:
             'person': [round(who[k], 3) for k in ('left', 'top', 'right', 'bottom')] if who else None,
             # for the 3D view, in odom: Nav2's goal and path, and where the person is
             'goal': goal, 'plan': plan, 'them': them,
-            'floors': self.floors, 'map': self.on_map(),
+            'floors': self.floors, 'map': self.on_map(), 'mapping': self.mapping,
             'limits': LIMITS,
         }
 
@@ -444,6 +464,8 @@ class Robot:
         """systemd states and the depth scan, ~1 Hz from a thread."""
         self.services = {'camera': P.camera(), 'voa': P.voa()}
         self.floors = self.bot.floors()
+        if self.mapping is not None and not (self.busy or '').startswith('map save'):
+            self.mapping = mapmaker.recording() or self.mapping    # the Orin's distance and time, ~1 Hz
         name = self.bot.floor
         if name is None:
             self.floor = None
@@ -570,6 +592,12 @@ class Server:
                      float(c['m']), float(c.get('deg') or 0))
         elif k == 'floor':
             r.submit('load ' + str(c['floor']), r.bot.load_floor, str(c['floor']))
+        elif k == 'map_record':
+            r.submit('map record', r.map_record)
+        elif k == 'map_save':
+            r.submit('map save ' + str(c.get('name')), r.map_save, str(c.get('name') or ''))
+        elif k == 'map_cancel':
+            r.submit('map cancel', r.map_cancel)
         elif k == 'here':
             r.submit('here', r.bot.set_pose, float(c['x']), float(c['y']), float(c.get('deg') or 0))
         elif k == 'go_point':

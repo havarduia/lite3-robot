@@ -1781,3 +1781,44 @@ One-minute test, robot standing still, tag 9 still 1 m in front of him:
 `env/front_camera.yaml`: tag 9 in 27 of 27 frames checked, 1.279 m ahead
 and 0.011 m left of base_link, spread 3 mm (the live check gave 1.278 and
 0.011).
+
+## 32. The tags in `lab2b`, surveyed (plan tasks 8f, 8g, 2026-10-14)
+
+Placed by the user: tag 9 in front of the start mark a little to the
+right, tags 1 and 3 either side of the left door, tag 4 in the corridor on
+the far wall right of the left door. Survey run `logs/2026-10-14_survey`
+(he was not on the mark: pose from the lidar fit, `here 0.30 -0.15 2 fit`),
+out to (2.6, -2.0) and back, 34 MB of front-camera frames.
+
+`bin/tags.py survey <run> <floor>`: every frame's tags, stamped with when
+the scene was (arrival - 0.29 s - the Orin's clock offset), kept if inside
+the calibrated area, within 3 m, while he turns under 0.3 rad/s and AMCL
+is localized with spread under 0.3 m; with AMCL's pose (the nearest
+`/localized` carried to the frame by the odometry), the median over the
+sightings is the tag's place. `env/tags/lab2b.json`:
+
+| tag | where on `lab2b` | faces | sightings | spread |
+|---|---|---|---|---|
+| 9 | (1.57, -0.09) | -180 deg (towards the start) | 70 | 0.003 m |
+| 1 | (1.56, 1.69) | 179 deg (into the room) | 1 | - |
+| 3 | (1.56, 2.96) | 179 deg | 12 | 0.041 m |
+| 4 | (3.39, -0.17) | -179 deg (across the corridor) | 8 | 0.015 m |
+
+Tag 1 was seen cleanly once: weak until more runs add to it.
+
+`bin/report.py ... --tags env/tags/lab2b.json`: at every good sighting of a
+surveyed tag, where the tag says he is against where AMCL had him. First
+version wrong: it rebuilt his pose from the tag's full orientation,
+assuming tags hang the standard way up; 1, 3 and 4 do not, and came out
+2.6-3.7 m off. Now it uses only the tag's place on the floor and which way
+its face points (a check in `tags.py` turns a tag in its own plane and
+expects the same answer). On the survey run itself (circular, so only a
+consistency check): median 0.012 m, p90 0.107 m, heading median 0.4 deg.
+The real use is every later run.
+
+Tag 4 is temporary (the corridor is the university's, not the lab's): up
+for test sessions only, at the same place each time: the sheet 23 cm to the
+right of the door with a red sign on it, flat on the wall. Its survey stays
+valid as long as it goes back there; in `env/tags/lab2b.json` it is marked
+`temporary` with that placement. Height off the floor hardly matters: the
+check uses only where a tag is along the floor and which way it faces.

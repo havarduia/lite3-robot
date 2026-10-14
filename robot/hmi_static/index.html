@@ -139,11 +139,12 @@ h2 { font-size: 16px; }
 }
 .rows > div:last-child { border-bottom: 0; }
 
-input[type=number], select, textarea {
+input[type=number], input[type=text], select, textarea {
   min-height: 44px; padding: 9px 10px; background: var(--field);
   border: 1px solid var(--groove); border-radius: 3px;
 }
 input[type=number] { width: 4.8em; font-weight: 700; text-align: right; }
+#map-name { width: 9em; }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .unit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .line label { min-width: 5.5em; }
@@ -384,6 +385,14 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
       <button class="key" id="map-no" hidden>No</button>
       <button class="key go" id="map-ok" hidden>Go here</button>
     </div>
+    <div class="line">
+      <input id="map-name" type="text" placeholder="new map" aria-label="name of the new map" autocapitalize="off" spellcheck="false">
+      <button class="key" id="map-record">Record map</button>
+      <span id="map-rec" class="lamp busy" hidden></span>
+      <button class="key" id="map-cancel" hidden>Cancel</button>
+      <button class="key go" id="map-save" hidden>Save</button>
+    </div>
+    <p class="note">Record map: stand him still where the map should start (tape that spot and the way he faces: it becomes the floor's start), name it, press Record map, drive him round with the handheld, press Save. Saving takes a minute or two; the new floor then shows up under Load. Nav2 goes off while recording.</p>
     <p class="note">Load starts Nav2 on that floor's map, and he must then be told where he is: press I am here, press the spot where he stands and drag the way he faces. After that a press on the map asks before it sends him. Grey he has never seen counts as wall. Cancel is under Navigate.</p>
   </section>
 
@@ -619,6 +628,12 @@ function mapStatus(s) {
     loadMap(m.floor).catch(() => { MAP.asked = null; });      // asked again with the next status
   }
   if (!m) { MAP.floor = MAP.asked = MAP.img = MAP.pick = null; setHere(false); }
+  const rec = s.mapping, saving = /^map save/.test(s.busy || '');
+  $('map-rec').hidden = !(rec || saving);
+  $('map-rec').textContent = saving ? 'Saving …' : rec ? 'Recording ' + fmt(rec.dist, 1) + ' m · '
+    + Math.floor(rec.t / 60) + ':' + String(rec.t % 60).padStart(2, '0') : '';
+  $('map-record').hidden = !!(rec || saving);
+  $('map-save').hidden = $('map-cancel').hidden = !rec || saving;
   $('map-state').textContent = !m ? 'No floor' : m.why ? m.floor + ': not placed' : m.floor;
   $('map-state').className = 'lamp' + (!m ? ' off' : m.why ? ' busy' : '');
   drawMap();
@@ -719,6 +734,15 @@ $('map-ok').addEventListener('click', () => {
   MAP.pick = null; setHere(false); drawMap();
 });
 $('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });
+const mapName = () => $('map-name').value.trim();
+$('map-record').addEventListener('click', () => send({ cmd: 'map_record' }));
+$('map-cancel').addEventListener('click', () => send({ cmd: 'map_cancel' }));
+$('map-save').addEventListener('click', () => {
+  const n = mapName();
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(n)) { $('map-name').focus(); $('map-name').placeholder = 'name first: letters, digits, - _'; return; }
+  if ((lastStatus && lastStatus.floors || []).includes(n) && !confirm('Replace floor ' + n + '? The old map is kept as a backup.')) return;
+  send({ cmd: 'map_save', name: n });
+});
 
 // --- controls ------------------------------------------------------------
 document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => {

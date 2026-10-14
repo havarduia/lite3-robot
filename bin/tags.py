@@ -3,6 +3,8 @@
 
     bin/tags.py make [out_dir]       tags 0-9 (AprilTag 36h11) as an A4 PDF, 14 cm, with a 10 cm scale bar
     bin/tags.py board [out_dir]      a ChArUco board (A4) for calibrating the front camera
+    bin/tags.py survey logs/<run> <floor>   each tag's place on that floor's map, from a recorded run
+                                     (env/tags/<floor>.json); walk him slowly past the tags, localized
     bin/tags.py check                self-check: a tag drawn at a known pose is found at that pose
 
 Print at 100% ("actual size"), then measure the scale bar: it must be 10.0 cm,
@@ -18,6 +20,8 @@ import sys
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ARUCO = cv2.aruco
 FAMILY = ARUCO.getPredefinedDictionary(ARUCO.DICT_APRILTAG_36h11)
@@ -176,6 +180,112 @@ def calibrated(corners, valid):
     return bool(np.all((corners[:, 0] >= x0) & (corners[:, 0] <= x1) & (corners[:, 1] >= y0) & (corners[:, 1] <= y1)))
 
 
+# --- survey and check: tags on the floor map, from a recorded run (bin/run.py) ---
+MAX_RANGE_M = 3.0           # further, a 14 cm tag is a few dozen pixels (2.5 cm off at 3 m in check())
+MAX_TURN_RATE = 0.3         # rad/s: faster, the frame and the pose disagree by more than the delay's spread
+POSE_GAP_S = 1.0            # a /localized reading further than this from a frame is not used
+TAGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'env', 'tags')
+
+
+def as_matrix(pose):
+    """(x, y, yaw) on the floor -> 4x4."""
+    c, s = math.cos(pose[2]), math.sin(pose[2])
+    T = np.eye(4)
+    T[:2, :2] = [[c, -s], [s, c]]
+    T[:2, 3] = pose[:2]
+    return T
+
+
+def on_floor(T):
+    """4x4 -> (x, y, yaw) of where it faces, flattened onto the floor (a tag's yaw: its face's)."""
+    return T[0, 3], T[1, 3], math.atan2(T[1, 2], T[0, 2])
+
+
+def nearest(series, t):
+    """The row of a time-first numpy array nearest to time t."""
+    return series[np.argmin(np.abs(series[:, 0] - t))]
+
+
+def map_pose(run, t):
+    """Where AMCL had him at time t (laptop clock), (x, y, yaw), and how sure ((spread_xy, fit)), or
+    None: the nearest localized reading, carried to t by the odometry between them."""
+    from robot.lio_relay import inv, join
+    loc = run['localized']
+    loc = loc[loc[:, 1] == 1] if len(loc) else loc          # state 1: localized
+    if not len(loc):
+        return None
+    l = nearest(loc, t)
+    if abs(l[0] - t) > POSE_GAP_S:
+        return None
+    od = run['/odom_fused']
+    o_l, o_t = nearest(od, l[0])[1:], nearest(od, t)[1:]
+    return join(tuple(l[2:5]), join(inv(tuple(o_l)), tuple(o_t))), (l[5], l[7])
+
+
+def turn_rate(run, t, window=0.4):
+    od = run['/odom_fused']
+    w = od[(od[:, 0] >= t - window / 2) & (od[:, 0] <= t + window / 2)]
+    if len(w) < 2:
+        return float('inf')
+    return abs(np.diff(np.unwrap(w[:, 3])).sum()) / (w[-1, 0] - w[0, 0])
+
+
+def sightings(folder, run, cam=None):
+    """[(t, tag id, base_link <- tag 4x4)] from a run folder's front camera frames: t is when the
+    scene was (arrival - the camera's delay, on the laptop's clock). Only tags inside the calibrated
+    area and within MAX_RANGE_M."""
+    cam = cam or front_camera()
+    offset = run['meta'].get('clock_offset_s', {}).get('orin', 0.0)
+    index = os.path.join(folder, 'orin', 'front', 'frames.txt')
+    out = []
+    if not os.path.exists(index):
+        return out
+    for line in open(index):
+        arrival, name = line.split()
+        g = cv2.imread(os.path.join(folder, 'orin', 'front', name), 0)
+        if g is None:
+            continue
+        t = float(arrival) - offset - cam['delay_s']
+        for tid, R, tvec, corners in detect(g, cam['K'], cam['D']):
+            if calibrated(corners, cam['valid']) and np.linalg.norm(tvec) <= MAX_RANGE_M:
+                out.append((t, tid, in_base(cam['T'], R, tvec)))
+    return out
+
+
+def good_sightings(folder, run, max_spread=0.3):
+    """sightings() with the map pose at each, kept where he was localized, sure and not turning fast:
+    [(t, tag id, base_link <- tag, map pose)]."""
+    out = []
+    for t, tid, T in sightings(folder, run):
+        mp = map_pose(run, t)
+        if mp and mp[1][0] <= max_spread and turn_rate(run, t) <= MAX_TURN_RATE:
+            out.append((t, tid, T, mp[0]))
+    return out
+
+
+def survey(folder, floor):
+    """Each tag's place on the floor map from a run: the median over its good sightings. Writes
+    env/tags/<floor>.json and returns it as {id: {x, y, yaw_deg, n, spread_m}}."""
+    import json
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import report
+    run = report.load_run(folder)
+    per = {}
+    for t, tid, T, pose in good_sightings(folder, run):
+        per.setdefault(tid, []).append(on_floor(as_matrix(pose) @ T))
+    out = {}
+    for tid, ps in sorted(per.items()):
+        ps = np.array(ps)
+        x, y = np.median(ps[:, 0]), np.median(ps[:, 1])
+        yaw = math.atan2(np.median(np.sin(ps[:, 2])), np.median(np.cos(ps[:, 2])))
+        out[str(tid)] = {'x': round(float(x), 3), 'y': round(float(y), 3), 'yaw_deg': round(math.degrees(yaw), 1),
+                         'n': len(ps), 'spread_m': round(float(np.median(np.hypot(ps[:, 0] - x, ps[:, 1] - y))), 3)}
+    os.makedirs(TAGS_DIR, exist_ok=True)
+    path = os.path.join(TAGS_DIR, floor + '.json')
+    json.dump({'floor': floor, 'run': os.path.basename(folder.rstrip('/')), 'tags': out}, open(path, 'w'), indent=1)
+    return path, out
+
+
 def angle_between(Ra, Rb):
     return math.degrees(math.acos(np.clip((np.trace(Ra.T @ Rb) - 1) / 2, -1, 1)))
 
@@ -227,6 +337,23 @@ def check():
     assert p[2] > 0, 'a camera looking up sees a point on its axis above itself'
     assert calibrated(np.array([[400, 200], [500, 200], [500, 300], [400, 300.0]]), cam['valid'])
     assert not calibrated(np.array([[100, 200], [200, 200], [200, 300], [100, 300.0]]), cam['valid'])
+    # survey arithmetic: a robot at a known pose sees a tag at a known place: the tag comes back
+    robot, tag = (2.0, 1.0, math.radians(30)), (3.5, 2.2, math.radians(-150))
+    T_map_tag = as_matrix(tag) @ np.array([[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1.0]])  # face along yaw
+    T_base_tag = np.linalg.inv(as_matrix(robot)) @ T_map_tag
+    back = on_floor(as_matrix(robot) @ T_base_tag)
+    assert np.allclose(back[:2], tag[:2]) and abs(back[2] - tag[2]) < 1e-9, back
+    # a tag hung any way up (turned within its own plane) is the same tag on the floor
+    spin = np.eye(4)
+    spin[:3, :3] = cv2.Rodrigues(np.array([0.0, 0.0, 2.0]))[0]       # 115 deg about the tag's own normal
+    a, b = on_floor(T_base_tag), on_floor(T_base_tag @ spin)
+    assert np.allclose(a, b), (a, b)
+    # map_pose: a localized reading carried forward by the odometry
+    run = {'localized': np.array([[10.0, 1, 1.0, 2.0, math.pi / 2, 0.1, 0.05, 0.9]]),
+           '/odom_fused': np.array([[10.0, 0.0, 0.0, 0.0], [10.5, 0.5, 0.0, 0.0]])}
+    (x, y, yaw), _ = map_pose(run, 10.5)
+    assert abs(x - 1.0) < 1e-9 and abs(y - 2.5) < 1e-9, (x, y)       # 0.5 m forward while facing +y
+    assert map_pose(run, 12.0) is None                                 # too far from any reading
     print('tags: check passed')
 
 
@@ -243,6 +370,12 @@ def main(argv):
             path = os.path.join(out, 'charuco_board_a4.pdf')
             write_pdf([board_page()], path)
         print('wrote %s; print at 100%% and check the scale bar is 10.0 cm' % path)
+        return
+    if argv[:1] == ['survey'] and len(argv) == 3:
+        path, out = survey(argv[1], argv[2])
+        for tid, v in out.items():
+            print('tag %s: (%.2f, %.2f) facing %.0f deg, %d sightings, spread %.3f m' % (tid, v['x'], v['y'], v['yaw_deg'], v['n'], v['spread_m']))
+        print('wrote %s' % path)
         return
     sys.exit(__doc__)
 

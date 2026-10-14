@@ -1,0 +1,36 @@
+{
+ "floor": "lab2b",
+ "run": "2026-10-14_survey",
+ "tags": {
+  "1": {
+   "x": 1.564,
+   "y": 1.686,
+   "yaw_deg": 179.0,
+   "n": 1,
+   "spread_m": 0.0
+  },
+  "3": {
+   "x": 1.556,
+   "y": 2.961,
+   "yaw_deg": 179.2,
+   "n": 12,
+   "spread_m": 0.041
+  },
+  "9": {
+   "x": 1.575,
+   "y": -0.086,
+   "yaw_deg": -179.5,
+   "n": 70,
+   "spread_m": 0.003
+  },
+  "4": {
+   "x": 3.386,
+   "y": -0.172,
+   "yaw_deg": -179.2,
+   "n": 8,
+   "spread_m": 0.015,
+   "temporary": true,
+   "placement": "corridor, on the wall across from the left door: the sheet 23 cm to the right of the door with a red sign on it, flat on the wall. Put up for test sessions only, taken down after."
+  }
+ }
+}

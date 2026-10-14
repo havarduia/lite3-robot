@@ -1440,6 +1440,11 @@ each message arrived, not by its stamp (stamps use the legs' steady clock).
 `--compare` puts the numbers of two runs side by side: the same walk
 before and after a change.
 
+**Tags in `lab2b`** (`env/tags/lab2b.json`): 9 in front of the start mark,
+1 and 3 either side of the left door (room side), and 4, **temporary**: put
+it up only for test sessions, in the corridor 23 cm to the right of the door
+with a red sign on it, flat on the wall, and take it down after.
+
 **AprilTags** (`bin/tags.py`) are the ground truth: `make` writes ten
 AprilTag 36h11 sheets (14 cm black square) and `board` a ChArUco board
 for calibrating the front camera. Print at 100% and measure the 10 cm

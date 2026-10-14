@@ -3,6 +3,7 @@
 
     bin/report.py logs/<run>                 writes <run>/report.txt and <run>/report.png
     bin/report.py --compare logs/<a> logs/<b>   the numbers side by side
+    ... --tags env/tags/<floor>.json         also AMCL against the surveyed tags (bin/tags.py survey)
     bin/report.py check                      self-check on a made-up run
 
 Reads what bin/run.py fetched: the bag (with Jazzy's sqlite3 plugin), the
@@ -343,9 +344,47 @@ def plot(run, path):
     plt.close(fig)
 
 
-def compare(a, b):
+def tag_check(folder, run, tags_file):
+    """AMCL against the tags: at each good sighting of a surveyed tag, where the tag says he is
+    against where AMCL had him. (numbers, lines)."""
+    import tags
+    surveyed = {int(k): v for k, v in json.load(open(tags_file))['tags'].items()}
+    t0, rows = run['meta']['start'], []
+    for t, tid, T, pose in tags.good_sightings(folder, run):
+        if tid not in surveyed:
+            continue
+        v = surveyed[tid]
+        # On the floor only: where the tag is and which way its face points, seen from him and on
+        # the map. Never its turn within its own plane: tags hang any way up (1, 3 and 4 do).
+        bx, by, b_yaw = tags.on_floor(T)
+        yaw = math.radians(v['yaw_deg']) - b_yaw
+        x = v['x'] - (math.cos(yaw) * bx - math.sin(yaw) * by)
+        y = v['y'] - (math.sin(yaw) * bx + math.cos(yaw) * by)
+        rows.append((t - t0, tid, math.hypot(x - pose[0], y - pose[1]), math.degrees(wrap(yaw - pose[2]))))
+    if not rows:
+        return {}, ['', 'Tags: no good sighting of a surveyed tag']
+    e = np.array([r[2] for r in rows])
+    a = np.abs([r[3] for r in rows])
+    out = ['', 'AMCL against the tags (%s): %d sightings of %s' % (
+        os.path.basename(tags_file), len(rows), sorted({r[1] for r in rows})),
+        '  position error: median %.3f m, p90 %.3f m, max %.3f m; heading: median %.1f deg, max %.1f deg' % (
+            np.median(e), np.percentile(e, 90), e.max(), np.median(a), a.max())]
+    for tid in sorted({r[1] for r in rows}):
+        et = np.array([r[2] for r in rows if r[1] == tid])
+        out.append('    tag %d: %3d sightings, median %.3f m' % (tid, len(et), np.median(et)))
+    return {'tag_err_median_m': float(np.median(e)), 'tag_err_p90_m': float(np.percentile(e, 90))}, out
+
+
+def wrap(a):
+    return math.atan2(math.sin(a), math.cos(a))
+
+
+def compare(a, b, tags_file=None):
     na, _ = summarize(load_run(a))
     nb, _ = summarize(load_run(b))
+    if tags_file:
+        na.update(tag_check(a, load_run(a), tags_file)[0])
+        nb.update(tag_check(b, load_run(b), tags_file)[0])
     print('%-28s %10s %10s %10s' % ('', os.path.basename(a.rstrip('/'))[:10], os.path.basename(b.rstrip('/'))[:10], 'b - a'))
     for k in sorted(set(na) | set(nb)):
         va, vb = na.get(k), nb.get(k)
@@ -415,13 +454,19 @@ def check():
 def main(argv):
     if argv == ['check']:
         return check()
+    tags_file = None
+    if '--tags' in argv:
+        i = argv.index('--tags')
+        tags_file, argv = argv[i + 1], argv[:i] + argv[i + 2:]
     if len(argv) == 3 and argv[0] == '--compare':
-        return compare(argv[1], argv[2])
+        return compare(argv[1], argv[2], tags_file)
     if len(argv) != 1:
         sys.exit(__doc__)
     folder = argv[0]
     run = load_run(folder)
     _, lines = summarize(run)
+    if tags_file:
+        lines += tag_check(folder, run, tags_file)[1]
     open(os.path.join(folder, 'report.txt'), 'w').write('\n'.join(lines) + '\n')
     plot(run, os.path.join(folder, 'report.png'))
     print('\n'.join(lines))
