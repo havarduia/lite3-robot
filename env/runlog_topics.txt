@@ -16,6 +16,7 @@
 # what Nav2 wanted and did
 /cmd_vel
 /plan
+/local_plan
 /navigate_to_pose/_action/status
 /global_costmap/costmap
 

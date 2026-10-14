@@ -1586,3 +1586,55 @@ Changed, with the user's yes: `alpha1`-`alpha5` 0.3 -> 0.1
 to AMCL as +-0.1 m / 0.1 rad instead of a tap's +-0.3 m / 0.26 rad
 (`set_pose(..., std=nav.FIT_POSE_STD)`; CLI `here x y deg fit`).
 Self-checks pass. Not on the robot yet.
+
+### On the robot (`logs/2026-10-14_amcl01`, commit `ba9b15e`)
+
+`lab2b` reloaded (`/tmp/nav2_map.yaml`: alpha1-5 0.1), pose from the lidar
+fit with `here -0.15 -0.10 -1 fit`. Two rounds of mark -> corridor
+(2.6, -2.0) -> `go start`, user's go each time:
+
+| | before (alpha 0.3, `lab2b-first`) | after |
+|---|---|---|
+| walks that arrived | 1 of 2 (two "lost" stops) | 4 of 4, no "lost" |
+| spread after setting the pose | 0.30 m | 0.10 m |
+| spread arriving in the corridor | 0.43 m | 0.30 m, 0.23 m |
+| spread back at the mark | | 0.16 m, 0.15 m (it narrows now) |
+| arrival at the mark (tape, front of body) | | 0.03 m, 0.06 m |
+
+New: "Failed to make progress" 2-4 times in walks 1, 3 and 4 (78-97 s
+against 36 s for walk 2), then Nav2's wait recovery, then on. Each time
+the 10 s before had forward commands of 0.01-0.05 m/s and turning of
+0.14-0.26 rad/s: Nav2 turning him slowly on the spot, at the places that
+need a big turn (leaving the mark with the route behind him, at the door
+on the way back, 180 deg at the start of walk 4). The progress checker
+wants 0.5 m in 10 s and a turn on the spot is no progress. A cost of no
+sideways movement: he used to slide instead.
+
+`bin/report.py`: goals already over when first seen (left over from a
+Nav2 that was replaced by a reload) are no longer listed.
+
+### He spun full circles: the controller had no heading critic (same day)
+
+The user: "he does 360 turns around spots getting a bit lost, and then
+progress". In `amcl01` the walks turned -412, -607 and -601 deg net (695 to
+846 deg in all), always clockwise, every degree of it Nav2's own
+`/cmd_vel` (only walk 2's first turn was `go_to`'s face-the-route turn).
+`nav2.log` has no "No valid trajectories" in any walk: the controller was
+never blocked, it chose to rotate. Its critics were PreferForward,
+GoalDist, PathDist, RotateToGoal, BaseObstacle. None scores which way he
+faces against the path: GoalDist and PathDist score where a trajectory
+ends 3 s on, and with hardly any forward speed every turn-on-the-spot ends
+in about the same place, so they tie, and the first sample (the most
+clockwise) wins. He turns clockwise, past the path and round again, until
+a forward move happens to score better. Sliding sideways had hidden this
+until sideways movement was switched off.
+
+Changed with the user's yes: critics now PreferForward, GoalDist,
+PathDist, **PathAlign, GoalAlign, Oscillation**, RotateToGoal,
+BaseObstacle (PathAlign 40 and GoalAlign 48 were already configured, just
+not listed). Both copies of `lite_nav2_mapless.yaml`, backups
+`*.pre-align2`; `env/nav2-mapless-lite3.patch` regenerated (reproduces
+the robot's file). On 10-08 PathAlign and GoalAlign were tried for the
+wiggle near goals and changed nothing (section 14); that was with
+sideways movement allowed. `/local_plan` added to the bag. Takes effect at
+the next floor load; not run yet.

@@ -73,13 +73,15 @@ def series(bag):
 
 def goals(status_msgs):
     """[(t, [(goal id, status)])] -> [{'start', 'end', 'result'}] in order of start."""
-    seen = {}
+    seen, stale = {}, set()
     for t, statuses in status_msgs:
         for gid, status in statuses:
+            if gid not in seen and status in DONE:
+                stale.add(gid)              # already over when first seen: a Nav2 before this one
             g = seen.setdefault(gid, {'start': t, 'end': None, 'result': None})
             if status in DONE and g['end'] is None:
                 g['end'], g['result'] = t, DONE[status]
-    return sorted(seen.values(), key=lambda g: g['start'])
+    return sorted((g for gid, g in seen.items() if gid not in stale), key=lambda g: g['start'])
 
 
 def path_length(xy, step=STEP_M):
@@ -386,6 +388,8 @@ def check():
     assert abs(num['goal1_walked_m'] - 7.88) < 0.12, num
     assert num['goal1_arrival_m'] == 0.07 and abs(num['goal1_s'] - 39.5) < 1e-9, num
     assert num['goals_succeeded'] == 1 and num['goals_failed'] == 0, num
+    assert goals([(5.0, [(b'old', 4), (b'new', 2)]), (9.0, [(b'old', 4), (b'new', 4)])]) == [
+        {'start': 5.0, 'end': 9.0, 'result': 'succeeded'}]      # a goal already over when first seen is left out
     assert abs(num['apart_max_m /lio_odom'] - 0.399) < 0.002, num     # 1 cm/s for 39.9 s
     assert num['apart_max_m /odom_fused'] == 0.0 and abs(num['gap_m /leg_odom2'] - 0.02) < 1e-6, num   # last sample 0.1 s short of closing
     assert num['spread_max_m'] == 0.6 and num['relay_drops'] == 1 and num['camera_dropped'] == 1, num

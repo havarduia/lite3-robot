@@ -169,8 +169,12 @@
        vtheta_samples: 40
  
        sim_time: 3.0
-@@ -236,7 +297,7 @@
-       critics: ["PreferForward", "GoalDist", "PathDist", "RotateToGoal", "BaseObstacle"]
+@@ -233,10 +294,10 @@
+       linear_granularity: 0.1
+       angular_granularity: 0.1
+ 
+-      critics: ["PreferForward", "GoalDist", "PathDist", "RotateToGoal", "BaseObstacle"]
++      critics: ["PreferForward", "GoalDist", "PathDist", "PathAlign", "GoalAlign", "Oscillation", "RotateToGoal", "BaseObstacle"]   # 2026-10-14: PathAlign/GoalAlign/Oscillation added: without a heading critic, turning on the spot was a tie and he spun clockwise past the path
  
        PreferForward.scale: 40.0
 -      PreferForward.strafe_x: 0.3
