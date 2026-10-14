@@ -15,3 +15,5 @@ robot/persona_private.py
 
 # Recordings from robot/rviz.py --record.
 *.rec
+# run recordings (bin/run.py): bags are tens of MB, kept on the laptop
+logs/
