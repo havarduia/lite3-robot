@@ -1440,7 +1440,19 @@ long way round too (the long way covers more than 180 deg).
 Laptop checks (`demos/check_motion.py`): a cell 0.35 m to his right refuses
 a 130 deg turn either way with nothing sent; a cell 1.4 m away does not; a
 cell he already stands on does not; in map mode the final turn to a
-place's heading is refused and he arrives facing the way he came. Not run
-on the robot yet. The open questions there: whether the local costmap
-marks the tyres at all (task 11a), and whether depth or sonar marks near
-him refuse turns that are fine.
+place's heading is refused and he arrives facing the way he came.
+
+On the robot (commit `d591f82`), standing on the `lab2` mark with the
+parked robot still beside him: the local costmap (odom, 8 x 8 m, 0.1 m
+cells) marks it as a block of obstacle cells at his right-rear, 0.33 to
+0.85 m to his right and 0 to 0.5 m behind his centre: about 8 cm from his
+side (4 to 14 cm with 0.1 m cells). So the local costmap does see it
+(lidar or rear sonar; which one not checked). Asked without moving: right
+turns are clear to about 45 deg and touch from 50 deg; left turns touch
+within 10 deg (his rear swings right). Walk 2's -130 deg final turn would
+have been refused about 50 deg in.
+
+Live, user's go, handheld ready: `turn -130` refused ("would touch
+something 65 deg in"), pose unchanged at (0.04, 0.01, 3 deg); `turn -30`
+turned, 3 to -28 deg. Not yet seen: whether depth or sonar marks refuse
+turns in the open that are fine.
