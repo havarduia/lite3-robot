@@ -31,6 +31,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAME = re.compile(r'^[A-Za-z0-9_-]{1,40}$')     # the Orin keeps only these in a run's name
 TILT_MAX_DEG = 1.5      # a run started while he still settled draws the floor tilted (5.7 deg once, section 27)
 SETTLE_S = 3.0          # how long a fresh run goes before its tilt is believed
+FRESH_S = 60.0          # a run older than this is not the one just started
 WAIT_S = 30.0           # for a run to stop, or a new one to start
 PROCESS_S = 600.0       # for the Orin to clean, flatten and slice a run
 POLL_S = 1.0
@@ -79,11 +80,15 @@ def start(bot):
         if not r.get('ok') and 'already running' not in str(r.get('error')):
             raise Lite3Error('the Orin would not start FAST-LIO2: %s' % r)
         # the relay starts one itself when he stands still: that one counts if it is fresh
-        s = _wait(lambda: (lambda s: s if s.get('running') and s.get('t', 0) >= SETTLE_S else None)(live('state')),
-                  WAIT_S, 'start FAST-LIO2')
-        if abs(s.get('tilt') or 0.0) <= TILT_MAX_DEG and s.get('dist', 0.0) < 0.5:
+        # Fresh: its clock under FRESH_S. Just after a start the Orin can still report the
+        # previous run's time and distance (seen 2026-10-14: refused as "tilted" at 0.3 deg).
+        s = _wait(lambda: (lambda s: s if s.get('running') and SETTLE_S <= s.get('t', 0) < FRESH_S else None)(live('state')),
+                  WAIT_S, 'start a fresh FAST-LIO2 run')
+        tilt, dist = abs(s.get('tilt') or 0.0), s.get('dist') or 0.0
+        if tilt <= TILT_MAX_DEG and dist < 0.5:
             return 'recording: drive him round with the handheld, then press Save'
-    raise Lite3Error('FAST-LIO2 started tilted (%.1f deg) twice: let him stand still and try again' % s.get('tilt'))
+    raise Lite3Error('FAST-LIO2 would not start clean: %s' % (
+        'tilted %.1f deg' % tilt if tilt > TILT_MAX_DEG else 'it had already moved %.1f m: keep him still' % dist))
 
 
 def recording():
