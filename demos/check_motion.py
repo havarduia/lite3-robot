@@ -36,6 +36,7 @@ class World:
     # Map mode: the global costmap, and what robot/locate.py last said (with the
     # odometry of that moment). None of it in mapless mode.
     grid = loc = loc_stopped = None
+    local_grid = None           # Nav2's local costmap, in odom: what a turn on the spot checks first
     loc_odom = (0.0, 0.0, 0.0)
     loc_time = property(lambda self: self.t if self.loc_stopped is None else self.loc_stopped)
 
@@ -168,6 +169,19 @@ def floor_costmap():
             position=types.SimpleNamespace(x=0.0, y=0.0))))
 
 
+def grid_with(frame, obstacles, origin=(-2.0, -2.0), size=4.0, res=0.05):
+    """A costmap `size` m square in `frame`, free but for an obstacle cell (100,
+    as Nav2 publishes lethal) at each (x, y) in `obstacles`."""
+    n = int(round(size / res))
+    cells = [0] * (n * n)
+    for x, y in obstacles:
+        cells[int((y - origin[1]) / res) * n + int((x - origin[0]) / res)] = 100
+    return types.SimpleNamespace(
+        header=types.SimpleNamespace(frame_id=frame), data=cells,
+        info=types.SimpleNamespace(resolution=res, width=n, height=n, origin=types.SimpleNamespace(
+            position=types.SimpleNamespace(x=origin[0], y=origin[1]))))
+
+
 def on_floor(state=locate.LOCALIZED):
     """World settings for map mode: odometry reads (0, 0, 0) and locate.py has
     him at (5, 5) on the map, facing +y."""
@@ -187,6 +201,19 @@ def main():
     assert r['reason'] == 'target reached' and 0.5 <= r['moved'] < 0.55 and halted, r
     r, halted, _ = run(lambda b: b.turn_deg(270, guard=False))   # past 180: counted, not wrapped
     assert r['reason'] == 'target reached' and 260 < r['turned_deg'] < 275 and halted, r
+    # a turn on the spot looks at the costmap for his body first (2026-10-14: he turned 130 deg into
+    # a parked robot's tyres): something it would swing into refuses the turn, and nothing is sent
+    beside = grid_with('odom', [(0.0, -0.35)])          # 0.35 m to his right: outside him, inside his sweep
+    r, halted, sent = run(lambda b: b.turn_deg(-130), local_grid=beside)
+    assert 'would touch' in r['reason'] and r['turned'] == 0.0 and not any(c[2] for c in sent), (r, sent)
+    r, _, _ = run(lambda b: b.turn_deg(130), local_grid=beside)       # the other way sweeps it too
+    assert 'would touch' in r['reason'], r
+    r, _, _ = run(lambda b: b.turn_deg(-130), local_grid=grid_with('odom', [(1.0, -1.0)]))
+    assert r['reason'] == 'target reached', r                         # out of reach: turns
+    r, _, _ = run(lambda b: b.turn_deg(-130), local_grid=grid_with('odom', [(0.2, 0.1)]))
+    assert r['reason'] == 'target reached', r                         # under him already: not his turn's doing
+    assert nav.sweep_hit(beside, (0.0, 0.0, 0.0), math.radians(-20)) is None      # a small turn misses it
+    assert nav.sweep_hit(beside, (0.0, 0.0, 0.0), math.radians(-90)) is not None
     r, halted, sent = run(lambda b: b.steer(lambda: (9.0, -9.0), limit=1.0))
     assert r['reason'] == 'time limit' and halted, r
     assert sent[0] == (L.MAX_SPEED, 0.0, -L.MAX_YAW_RATE), sent[0]
@@ -270,6 +297,11 @@ def main():
     assert r == nav.SUCCEEDED and not any(c[2] for c in sent), sent                     # roughly ahead: no turn of his own
     r, _, _ = run(lambda b: (b.go_to_point(2.0, 5.0, yaw_deg=0), b._node.odom[2]), **on_floor())
     assert r[0] == nav.SUCCEEDED and abs(r[1] + math.pi / 2) < 0.1, r                   # and turned to the heading asked for
+    # the final turn to a heading looks too (global costmap in map mode): facing +y at (5, 5), turning to 0
+    # would swing him over (5.35, 5.0); he arrives, says why he did not turn, and has not turned
+    walled = dict(on_floor(), grid=grid_with('map', [(5.35, 5.0)], origin=(3.0, 3.0)))
+    r, _, sent = run(lambda b: (b.go_to_point(5.05, 5.0, yaw_deg=0), b._node.odom[2]), **walled)
+    assert r[0] == nav.SUCCEEDED and r[1] == 0.0 and not any(c[2] for c in sent), (r, sent)
     r, _, _ = run(lambda b: b.go_to_point(5.05, 5.0), **on_floor())
     assert r == nav.SUCCEEDED and len(GOALS) == 4, (r, len(GOALS))                      # already there: no goal sent
     pretend_nav2(arrives=None)

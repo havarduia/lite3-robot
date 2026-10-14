@@ -130,6 +130,7 @@ class _Node(Node):
         self.odom_time = 0.0        # time.time() of the newest odometry
         self.cloud = None
         self.grid = None
+        self.local_grid = None      # Nav2's local costmap: a turn on the spot checks it (nav.turn_blocked)
         # Map mode: what robot/locate.py last said, when, and the odometry of that moment.
         self.loc, self.loc_time, self.loc_odom = None, 0.0, None
         self.us_front = self.us_rear = None
@@ -144,6 +145,8 @@ class _Node(Node):
                                             lambda m: setattr(self, 'cloud', m), best)
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap',
                                  lambda m: setattr(self, 'grid', m), latched)
+        self.create_subscription(OccupancyGrid, '/local_costmap/costmap',
+                                 lambda m: setattr(self, 'local_grid', m), latched)
         # The rear one bottoms out at 0.28 m, which lying down also means "no echo":
         # a reading, not a guard.
         self.create_subscription(Float64, '/us_publisher/ultrasound_distance',
@@ -686,7 +689,10 @@ class Lite3(Nav, Depth):
 
     def turn(self, radians, rate=0.4, force=False, guard=True):
         """Turn in place by `radians` relative to the current heading. Positive is
-        left; any magnitude, beyond a full revolution too.
+        left; any magnitude, beyond a full revolution too. With guard, refuses
+        (turned 0) a turn that would swing his body onto something in Nav2's
+        costmap, and stops if the depth camera sees something on the side
+        he turns to.
         """
         rate = min(abs(rate), MAX_YAW_RATE)
         if not rate > 0:
@@ -709,6 +715,10 @@ class Lite3(Nav, Depth):
 
         abort = None
         if guard:
+            why = self.turn_blocked(radians)
+            if why:
+                p = self.pose
+                return {'reason': why, 'start': p, 'end': p, 'turned': 0.0}
             if self._node.cloud is None:
                 print('NOTE: no depth stream - turning without the side check')
             else:

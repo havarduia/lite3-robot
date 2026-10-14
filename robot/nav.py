@@ -66,6 +66,44 @@ def wrap(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
+# A turn on the spot checks his body against the costmap first. His footprint
+# in the Nav2 config is 0.6 x 0.4 m with 0.05 m padding: these are half of it.
+# OBSTACLE is how Nav2 publishes a lethal cell (99 is "too close", not "on it").
+FOOTPRINT_HALF = (0.35, 0.25)
+OBSTACLE = 100
+SWEEP_STEP = math.radians(5)
+
+
+def under(grid, pose, half=FOOTPRINT_HALF):
+    """Indices of the costmap cells his body covers at pose (x, y, yaw), in the grid's frame."""
+    i = grid.info
+    r, (hx, hy) = i.resolution, half
+    c, s = math.cos(pose[2]), math.sin(pose[2])
+    cells = set()
+    nx, ny = int(2 * hx / (r / 2)) + 1, int(2 * hy / (r / 2)) + 1      # half a cell apart: no gaps
+    for a in range(nx):
+        for b in range(ny):
+            bx, by = -hx + 2 * hx * a / (nx - 1), -hy + 2 * hy * b / (ny - 1)
+            cx = int((pose[0] + bx * c - by * s - i.origin.position.x) / r)
+            cy = int((pose[1] + bx * s + by * c - i.origin.position.y) / r)
+            if 0 <= cx < i.width and 0 <= cy < i.height:
+                cells.add(cy * i.width + cx)
+    return cells
+
+
+def sweep_hit(grid, pose, turn, half=FOOTPRINT_HALF, step=SWEEP_STEP):
+    """The first part of `turn` (rad, signed) at which his body would cover an obstacle cell,
+    or None if the whole turn is clear. Cells he covers already are left out: standing
+    against something is not this turn's doing, and would refuse every turn."""
+    there = under(grid, pose, half)
+    n = max(1, int(math.ceil(abs(turn) / step)))
+    for k in range(1, n + 1):
+        part = turn * k / n
+        if any(grid.data[j] >= OBSTACLE for j in under(grid, (pose[0], pose[1], pose[2] + part), half) - there):
+            return part
+    return None
+
+
 def free_ahead(profile):
     """Metres a cost_ahead() profile stays plannable from the robot outwards:
     the last distance before the first LETHAL or off-map cell.
@@ -148,7 +186,7 @@ class Nav:
         for pgid in self._nav_groups():
             _kill_group(pgid, timeout, self._wait)
             killed += 1
-        self._node.grid = None
+        self._node.grid = self._node.local_grid = None
         time.sleep(1.0)
         return killed
 
@@ -186,6 +224,23 @@ class Nav:
                 '%d nav2 process groups are running - an earlier stack '
                 'survived. Call nav_stop() and retry.' % len(groups))
         return True
+
+    def turn_blocked(self, radians):
+        """Why a turn on the spot by `radians` would put his body on an obstacle, or None.
+        Checks the local costmap (depth, sonars and lidar), else the global one (map mode:
+        the map and the lidar). With neither, says nothing: there is nothing to check."""
+        g = getattr(self._node, 'local_grid', None) or self._node.grid
+        if g is None:
+            return None
+        frame = g.header.frame_id
+        pose = self._node.odom if frame == 'odom' else self.map_pose if frame == 'map' else None
+        if pose is None:
+            return None
+        hit = sweep_hit(g, pose, radians)
+        if hit is None:
+            return None
+        return 'turning %+.0f deg would touch something %.0f deg in (%s costmap) - not turning' % (
+            math.degrees(radians), math.degrees(abs(hit)), 'local' if g is getattr(self._node, 'local_grid', None) else 'global')
 
     def cost_at(self, x, y, frame='odom'):
         """Global costmap cost at a point given in odom, or on the floor map

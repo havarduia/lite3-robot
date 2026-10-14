@@ -397,6 +397,18 @@ otherwise pass it through as the full limit.
 - **Side guard**: while turning, it checks the side it is turning toward.
   The body corner sweeps a circle of ~0.36 m radius; anything nearer than
   `TURN_SWEEP = 0.43 m` on that side stops the turn.
+- **Sweep check** (2026-10-14): before turning, his body (0.7 x 0.5 m, the
+  Nav2 footprint with its padding) is swept through the turn in 5° steps
+  over Nav2's **local** costmap (depth, sonars and lidar; the global one if
+  there is no local). If it would cover an obstacle cell it does not cover
+  already, the turn is refused: `turned` 0 and a reason saying how far in
+  it would touch. Added after he turned 130° on the spot, at the end of a
+  `go start`, into a parked robot's tyres beside him
+  (`LIDAR_ORIN_LOG.md` section 24). It does not offer the other way round:
+  with a rectangular body, anything near enough to touch one way is swept
+  the long way too. It sees only what the costmap has: low things beside
+  him are under the lidar's lowest side ray (plan task 11a). With Nav2
+  down there is no costmap and no sweep check.
 
 **`strafe(distance)`**: sideways, positive = left. No obstacle guard.
 

@@ -1396,3 +1396,51 @@ install, backups `*.pre-novy`), and in `env/nav2-mapless-lite3.patch`
 (regenerated: the vendor file recovered by reversing the old patch, which
 round-trips; the new patch reproduces the robot's file). Takes effect at
 the next floor load. Not run yet.
+
+### The no-sideways run (`logs/2026-10-14_novy`)
+
+`lab2` reloaded with the new limits (`/tmp/nav2_map.yaml`: `max_vel_y`
+0.0, `min_vel_y` 0.0, `vy_samples` 1), pose from the lidar fit ((-0.20,
+-0.05, 6 deg), fit 1.00). Two walks from the CLI, then the user sent three
+more goals from the panel; five Nav2 goals in the bag.
+
+- **Sideways: 0.000 m/s in every command of all five goals.** No crab
+  walking, and he cleared the table leg he had slid into before.
+- Both CLI walks arrived; no "lost" stop in the corridor turn this time.
+- After the last panel goal (ending at the mark): 6 cm left of the mark,
+  a little turned (tape, front of the body).
+- **He touched another robot parked to his right, on its big rubber
+  tyres, at the end of walk 2** (`go start` from the CLI; first written
+  here as a panel goal, wrongly). Nav2's part ended at 284.5 s (its last
+  `/cmd_vel`), at about 138 deg. Then `go_to`'s final turn to the place's
+  heading turned him on the spot from 134 to 4 deg, about 130 deg to the
+  right, in 6 s (285.6-291.3 s). That turn is `Lite3.turn()`, not Nav2:
+  it never looks at the costmap, and its only check is the depth camera's
+  ±43 deg ahead. During and after it the low `/scan` had something
+  0.45-0.56 m away on his right and right-rear (the parked robot); its
+  tyres were lower than anything the lidar sees there (lowest side ray
+  -7 deg). Plan task 13g.
+- The CLI had printed walk 2 as the last goal: goals sent from the panel
+  during a recording are easy to miss. Note them as they are sent.
+
+### Turns on the spot look at the costmap first (task 13g, same day)
+
+`Lite3.turn()` now sweeps his body (0.7 x 0.5 m: the Nav2 footprint and
+its padding) through the turn in 5 deg steps over Nav2's local costmap
+(depth, sonars, lidar; the global one if there is none) and refuses the
+turn if the body would cover an obstacle cell it does not cover at the
+start (`nav.sweep_hit`, `Nav.turn_blocked`). `Lite3` subscribes to
+`/local_costmap/costmap` for it. Every turn goes through it: `go_to`'s
+face-the-route and final-heading turns, `turn_deg`, the panel.
+
+Turning the other way round instead was planned and dropped: with a
+rectangular body, any point near enough to be touched one way is swept the
+long way round too (the long way covers more than 180 deg).
+
+Laptop checks (`demos/check_motion.py`): a cell 0.35 m to his right refuses
+a 130 deg turn either way with nothing sent; a cell 1.4 m away does not; a
+cell he already stands on does not; in map mode the final turn to a
+place's heading is refused and he arrives facing the way he came. Not run
+on the robot yet. The open questions there: whether the local costmap
+marks the tyres at all (task 11a), and whether depth or sonar marks near
+him refuse turns that are fine.
