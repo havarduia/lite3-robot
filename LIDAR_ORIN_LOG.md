@@ -1636,5 +1636,108 @@ not listed). Both copies of `lite_nav2_mapless.yaml`, backups
 `*.pre-align2`; `env/nav2-mapless-lite3.patch` regenerated (reproduces
 the robot's file). On 10-08 PathAlign and GoalAlign were tried for the
 wiggle near goals and changed nothing (section 14); that was with
-sideways movement allowed. `/local_plan` added to the bag. Takes effect at
-the next floor load; not run yet.
+sideways movement allowed. `/local_plan` added to the bag.
+
+On the robot (`logs/2026-10-14_align`, `lab2b` reloaded, critics checked
+in `/tmp/nav2_map.yaml`, pose `here -0.2 0 0 fit`), one round:
+
+| | `amcl01` (no heading critics) | `align` |
+|---|---|---|
+| walk 1, mark -> corridor | 77.7 s, -412 deg net, 2 progress failures | 32.3 s, -57 deg net, none |
+| walk 2, back | 35.7 s, +130 deg, none | 34.7 s, +140 deg, none |
+| arrival at the mark (tape) | 0.03 m | 0.16 m (11 cm back, 12 cm left; he believed 12 cm) |
+
+The spinning is gone. "Turned in all" (343 and 329 deg) is mostly the
+trotting body's yaw jitter added up; net turning is the number to watch.
+Arrivals so far run 3-16 cm, mostly AMCL's own error at the mark: one
+measurement per run is too few to rank them.
+
+## 29. The lidar waited for the clock; the front camera's delay (2026-10-14)
+
+**12a held at a real boot.** After the evening battery change: NTP synced
+at 42.1 s after boot, the driver started at 48.0 s, `/livox/lidar` 10 Hz.
+(Before the drop-in the driver started first and flooded.)
+
+**Front camera delay (plan task 8c).** Robot lying, the laptop's screen
+held in front of the front camera, flipping black/white every 0.7 s with
+each flip's time logged on the laptop; on the Jetson, OpenCV read the RTSP
+stream (`rtsp://192.168.1.120:8554/test`) and stamped every decoded frame
+with `time.time()` and the mean brightness of the picture's centre. Both
+clocks NTP-synced (root distance 4.6 ms laptop, 1.3 ms Jetson); the ssh
+round trip over Tailscale (0.18-0.20 s) was too slow to measure the offset
+itself, so the clocks were taken as equal.
+
+| | |
+|---|---|
+| frames | 1,164 at 30.7 fps; gaps median 32 ms, at most 46 ms |
+| flips matched | 36 of 36 (centre brightness 139 dark, 206 bright) |
+| delay, flip to the first frame showing it | median 0.290 s, 0.256-0.296 s |
+| spread (p90 - p10) | 0.036 s |
+
+The delay is steady: a fixed 0.28-0.29 s can be taken off every frame's
+arrival time and what is left varies by about ±0.02 s, under the plan's
+50 ms bar. So the front camera stays the tag camera; the RealSense colour
+fallback is not needed. The figure includes the laptop screen's own
+response (some ms) and decoding on the Jetson, so the camera's true delay
+is a little less. At walking speed (0.3 m/s) an uncorrected 0.29 s would
+put a tag sighting 9 cm off; corrected, well under a centimetre.
+
+Note for 8e: ffmpeg's own timestamps on this stream are unusable (every
+frame read 1.79 s, and `setpts=RTCTIME` did not take); stamping in OpenCV
+on arrival worked.
+
+Checked over the hotspot with one open ssh connection (round trip 5.6 ms):
+the Jetson's clock is 2.6 ms behind the laptop's (±2.8 ms), so the delay
+above stands. The same check found a bug in `bin/run.py`: it measured each
+computer's clock offset with a fresh ssh per ask, whose round trip (0.2-1
+s) is mostly connection setup, and stored the Jetson as 0.5-1.0 s ahead in
+every run that day; `bin/report.py` then shifted the Jetson's bag,
+`nav2.log` and load by that much against the notes and the other
+computers. Fixed: the quickest of 20 asks over one open connection, and
+`clock_error_s` stored beside it. Through the hotspot: Jetson -2.7 ms,
+motion computer -0.6 ms, Orin +22 ms, each to about 3 ms. The day's run
+folders were corrected to 0 (the old figures kept as
+`clock_offset_s_measured`); the conclusions drawn from them were about
+whole walks and stand.
+
+## 30. Front camera calibration (plan task 8d, 2026-10-14)
+
+Robot lying on a desk; the user held `bin/tags.py`'s ChArUco board (5 x 7,
+35 mm squares, AprilTag 36h11 markers) in front of the front camera while
+the Jetson saved a frame every 0.4-0.5 s (OpenCV on the RTSP stream).
+
+First try, 75 s at about a metre: the board was found in 11 of 149
+frames. Its 26 mm markers are about 15 px across at that distance through
+this lens: about 2 px per cell. Detecting on frames scaled up 2x (and a
+smaller minimum marker size) found 45. Fits on those were all 0.2 px, yet
+the models disagreed (focal length 512 px plain, 407 fisheye; centre y 363
+against 402): the board never left the middle of the picture, so nothing
+pinned the lens down.
+
+Second try, 120 s, board nearer and moved about: found in 182 of 298
+frames (2x scaled), but still only x 310-1000, y 150-525 of 1280 x 720.
+The lens sees about 100 deg across; from a metre away arms do not reach
+its edges. Fitted on 70 views, tested on 40 others:
+
+| model | fit | held out (median, p90) | focal length | centre |
+|---|---|---|---|---|
+| plain (k1-k3) | 0.21 px | 0.20, 0.25 px | 496 px | (645, 360) |
+| fisheye | 0.21 px | 0.20, 0.25 px | 496 px | (646, 361) |
+
+They now agree, and inside the covered area they point a pixel in the same
+direction to 0.12 deg. Kept: the plain model, in `env/front_camera.yaml`,
+with the covered area as `valid`: a tag whose corners fall outside it is
+not used. Not done yet: the camera's place on the body (`mount`), and the
+check of a tag at a taped 1.0 m.
+
+The camera's place on the body, from the robot's own mesh instead of a
+tape (the user pointed out the lens on a picture of the model): in
+`urdf/meshes_hd/torso.STL`, which the URDF joins to `base_link` with no
+offset, the lens ring is centred at y 0.00, z -0.006 m, its rim at
+x 0.271 m (the face round it reaches 0.279 m), the ring tilted 7.4 deg
+down. The lens itself is an open hole in the mesh, so the real optical
+axis may differ a little from the ring's tilt. Written to
+`env/front_camera.yaml` as `mount` (x 0.271, z -0.006, pitch 0.129 rad);
+`bin/tags.py` now loads the file (`front_camera()`, task 8b) and checks a
+tag lies inside the calibrated area (`calibrated()`). Still to do: a tag at
+a taped 1.0 m in front of the lens, which checks distance and pitch.

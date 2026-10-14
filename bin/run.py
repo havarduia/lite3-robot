@@ -31,6 +31,7 @@ ROBOT_ENV = 'source ~/robot/env/lite3_env.sh >/dev/null 2>&1'
 # The laptop's own ROS, walled off from any robot (memory: laptop testing).
 LOCAL_ENV = 'source /opt/ros/jazzy/setup.bash; export ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1; unset CYCLONEDDS_URI'
 STOP_WAIT_S = 15        # a bag closes its file on SIGINT; give it this long
+CLOCK_SAMPLES = 20
 
 
 def routes(via):
@@ -74,11 +75,29 @@ def remote_dir(name, host):
     return '/tmp/runlog/%s/%s' % (name, host)
 
 
-def clock_offset(route):
-    """Seconds that computer's clock is ahead of the laptop's, to about the ssh round trip."""
-    t0 = time.time()
-    there = float(sh(route, 'date +%s.%N'))
-    return round(there - (t0 + time.time()) / 2, 3)
+def clock_offset(route, samples=CLOCK_SAMPLES):
+    """(seconds that computer's clock is ahead of the laptop's, how sure: half the round trip).
+    Over one open connection, the quickest of `samples` asks: a fresh ssh each time spends most
+    of its round trip (0.2-1 s through the hotspot hop) setting up, which made the Jetson look
+    0.5-1 s ahead when NTP had it within 3 ms (LIDAR_ORIN_LOG.md section 29)."""
+    loop = 'while read x; do date +%s.%N; done'
+    cmd = ['bash', '-c', loop] if route is None else SSH + route + [loop]
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         text=True, bufsize=1)
+    best = None
+    try:
+        for _ in range(samples):
+            a = time.time()
+            p.stdin.write('x\n')
+            p.stdin.flush()
+            there = float(p.stdout.readline())
+            b = time.time()
+            if best is None or b - a < best[0]:
+                best = (b - a, there - (a + b) / 2)
+    finally:
+        p.stdin.close()
+        p.terminate()
+    return round(best[1], 4), round(best[0] / 2, 4)
 
 
 def start(name, minutes, via):
@@ -89,7 +108,7 @@ def start(name, minutes, via):
     folder = os.path.join(LOGS, '%s_%s' % (datetime.date.today().isoformat(), name))
     os.makedirs(folder)
     cap = int(minutes * 60)
-    meta = {'name': name, 'via': via, 'start': time.time(), 'cap_s': cap, 'clock_offset_s': {},
+    meta = {'name': name, 'via': via, 'start': time.time(), 'cap_s': cap, 'clock_offset_s': {}, 'clock_error_s': {},
             'laptop_commit': subprocess.run(['git', '-C', REPO, 'log', '-1', '--oneline'],
                                             capture_output=True, text=True).stdout.strip()}
     loadwatch = open(os.path.join(REPO, 'robot', 'loadwatch.py'), 'rb').read()
@@ -97,7 +116,7 @@ def start(name, minutes, via):
     for host, route in routes(via).items():
         d = remote_dir(name, host)
         sh(route, 'mkdir -p %s && cat > %s/loadwatch.py' % (d, d), stdin=loadwatch)
-        meta['clock_offset_s'][host] = clock_offset(route)
+        meta['clock_offset_s'][host], meta['clock_error_s'][host] = clock_offset(route)
         sh(route, detached(d, 'loadwatch', 'timeout %d python3 %s/loadwatch.py %s/load.jsonl %d 2'
                            % (cap, d, d, cap)))
         if host == 'jetson':

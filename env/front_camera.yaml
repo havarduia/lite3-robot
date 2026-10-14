@@ -1,0 +1,20 @@
+# The robot's front wide-angle camera (motion computer, rtsp://192.168.1.120:8554/test), for
+# reading AprilTags (bin/tags.py). Calibrated 2026-10-14 (plan task 8d, LIDAR_ORIN_LOG.md section 30)
+# from 182 views of bin/tags.py's ChArUco board; 70 fitted, 40 held out: 0.20 px median error.
+# A fisheye model fitted the same views as well and agrees with this one to 0.12 deg inside
+# the calibrated area, so the plain model is used.
+model: pinhole
+image: [1280, 720]
+# camera matrix [fx, 0, cx; 0, fy, cy; 0, 0, 1]
+K: [[496.3242, 0.0, 645.1189], [0.0, 496.2105, 360.1241], [0.0, 0.0, 1.0]]
+# OpenCV k1, k2, p1, p2, k3
+D: [0.02061, -0.00247, -0.00040, -0.00034, -0.10929]
+# Where the board reached (pixels). Outside this the lens is not calibrated: a tag whose
+# corners fall outside it is not used. The edges of a ~100 deg lens bend most.
+valid: {x: [310, 1000], y: [150, 525]}
+delay_s: 0.29        # from the scene to a frame's arrival on the Jetson (task 8c, section 29)
+# Where the camera sits on base_link (m, rad; REP-103: pitch positive = nose down), from
+# the robot's own mesh (urdf/meshes_hd/torso.STL, which is in base_link): the lens ring at
+# x 0.271, y 0.00, z -0.006, its face tilted 7.4 deg down. The lens itself is not modelled,
+# so the pitch is the ring's; check it with a tag at a taped distance (plan task 8d).
+mount: {x: 0.271, y: 0.0, z: -0.006, roll: 0.0, pitch: 0.129, yaw: 0.0}

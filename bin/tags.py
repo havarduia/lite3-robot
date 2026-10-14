@@ -158,6 +158,24 @@ def render(tag_id, K, R, t, shape=(720, 1280)):
     return cv2.warpPerspective(img, H, (shape[1], shape[0]), borderValue=180)
 
 
+def front_camera(path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                     'env', 'front_camera.yaml')):
+    """The front camera from env/front_camera.yaml: dict with K, D (numpy), base_link <- optical
+    frame 'T' (None until mounted), 'valid' ((x0, x1), (y0, y1)) and 'delay_s'."""
+    import yaml
+    c = yaml.safe_load(open(path))
+    m = c.get('mount')
+    return {'K': np.array(c['K'], float), 'D': np.array(c['D'], float),
+            'T': None if m is None else mount(m['x'], m['y'], m['z'], m['roll'], m['pitch'], m['yaw']),
+            'valid': (tuple(c['valid']['x']), tuple(c['valid']['y'])), 'delay_s': c['delay_s']}
+
+
+def calibrated(corners, valid):
+    """True if all four corners of a tag lie where the lens is calibrated."""
+    (x0, x1), (y0, y1) = valid
+    return bool(np.all((corners[:, 0] >= x0) & (corners[:, 0] <= x1) & (corners[:, 1] >= y0) & (corners[:, 1] <= y1)))
+
+
 def angle_between(Ra, Rb):
     return math.degrees(math.acos(np.clip((np.trace(Ra.T @ Rb) - 1) / 2, -1, 1)))
 
@@ -199,6 +217,14 @@ def check():
     cols = np.where((pg[rows[0]] == 0))[0]
     mm = (cols[-1] - cols[0] + 1) / (DPI / 25.4)
     assert abs(mm - TAG_M * 1000) < 0.5, mm
+    # the real camera file: loads, and a tag 1 m straight along the lens axis is 1 m ahead of the
+    # lens and below it by the camera's pitch
+    cam = front_camera()
+    assert cam['K'][0, 0] > 300 and cam['T'] is not None and 0.2 < cam['delay_s'] < 0.4, cam
+    p = in_base(cam['T'], np.eye(3), np.array([0, 0, 1.0]))[:3, 3]
+    assert abs(p[0] - (0.271 + math.cos(0.129))) < 1e-6 and abs(p[2] - (-0.006 - math.sin(0.129))) < 1e-6, p
+    assert calibrated(np.array([[400, 200], [500, 200], [500, 300], [400, 300.0]]), cam['valid'])
+    assert not calibrated(np.array([[100, 200], [200, 200], [200, 300], [100, 300.0]]), cam['valid'])
     print('tags: check passed')
 
 
