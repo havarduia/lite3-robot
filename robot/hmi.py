@@ -77,13 +77,6 @@ def ip_of(dev):
     return m.group(1) if m else None
 
 
-def tailscale_ip():
-    ip = ip_of('tailscale0')
-    if not ip:
-        raise SystemExit('no tailscale0 address - is tailscaled up?')
-    return ip
-
-
 def video_candidate(host_header, local_ip, tailnet_ip):
     """Where a page's browser sends its camera traffic (udp_relay): the address
     it reached the panel at. A phone on his own wifi comes through the motion
@@ -782,7 +775,12 @@ class Server:
             await asyncio.sleep(1.0 / MODEL_HZ)
 
     def main(self):
-        host = self.host = tailscale_ip()
+        # Tailscale, and his own network for a phone on his wifi. In handheld mode (no internet)
+        # Tailscale may have no address: then his own network alone.
+        lan = ip_of(LAN_DEV)
+        host = self.host = ip_of('tailscale0') or lan
+        if not host:
+            raise SystemExit('neither tailscale0 nor %s has an address' % LAN_DEV)
         self.loop = asyncio.get_event_loop()
         self.robot = Robot(self.emit)
         FrontCamera(self.front).start()
@@ -801,8 +799,7 @@ class Server:
         self.loop.run_until_complete(web.TCPSite(runner, '127.0.0.1', PORT).start())
         # and the robot's own network, for a phone on his wifi with no Tailscale (handheld
         # mode): the motion computer forwards http://192.168.2.1:8080 here (env/robot-nat.sh)
-        lan = ip_of(LAN_DEV)
-        if lan:
+        if lan and lan != host:
             self.loop.run_until_complete(web.TCPSite(runner, lan, PORT).start())
         relay = subprocess.Popen(
             [sys.executable, '-m', 'robot.udp_relay', '0.0.0.0', str(P.CAMERA_RTC_PORT),
@@ -812,8 +809,8 @@ class Server:
         self.loop.create_task(self.model_ticker())
         for sig in (signal.SIGINT, signal.SIGTERM):
             self.loop.add_signal_handler(sig, self.loop.stop)
-        print('HMI on http://%s:%d (tailnet)%s - Ctrl-C sits him and stops'
-              % (host, PORT, ' and http://%s:%d on his own wifi' % (P.AP_IP, PORT) if lan else ''), flush=True)
+        print('HMI on %shttp://%s:%d on his own wifi - Ctrl-C sits him and stops'
+              % ('http://%s:%d (tailnet) and ' % (host, PORT) if host != lan else '', P.AP_IP, PORT), flush=True)
         try:
             self.loop.run_forever()
         finally:
