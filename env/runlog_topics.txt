@@ -17,6 +17,8 @@
 /cmd_vel
 /plan
 /local_plan
+# RPP's aim point on the route (plan rpp-controller); nothing while DWB drives
+/lookahead_point
 /navigate_to_pose/_action/status
 /global_costmap/costmap
 

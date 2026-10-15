@@ -77,8 +77,21 @@ GLOBAL_UPDATE_HZ = 1.0
 GLOBAL_PUBLISH_HZ = 0.5
 
 
+def check_rpp(p):
+    """Regulated Pure Pursuit slows near walls by reading distance back out of the local
+    costmap's inflation cost, so its factor must be the costmap's (plan rpp-controller)."""
+    f = p.get('controller_server', {}).get('ros__parameters', {}).get('FollowPath', {})
+    if 'RegulatedPurePursuit' not in str(f.get('plugin')):
+        return
+    want = p['local_costmap']['local_costmap']['ros__parameters']['inflation_layer']['cost_scaling_factor']
+    if f.get('inflation_cost_scaling_factor') != want:
+        raise ValueError('FollowPath.inflation_cost_scaling_factor is %s but the local inflation '
+                         'cost_scaling_factor is %s: make them equal' % (f.get('inflation_cost_scaling_factor'), want))
+
+
 def map_params(mapless, map_yaml):
     """The mapless parameters (as a dict) -> map mode's."""
+    check_rpp(mapless)
     p = copy.deepcopy(mapless)
     p['bt_navigator']['ros__parameters']['global_frame'] = 'map'
     g = p['global_costmap']['global_costmap']['ros__parameters']
@@ -153,6 +166,19 @@ recoveries_server:
     assert all(out['amcl']['ros__parameters']['alpha%d' % i] == 0.1 for i in range(1, 6))
     # written and read back it is the same, types included (a float must not come back a string)
     assert changed(out, yaml.safe_load(yaml.safe_dump(out))) == []
+    # RPP reads distance to walls back out of the local costmap's inflation: same factor, or refused
+    rpp = copy.deepcopy(mapless)
+    rpp['local_costmap']['local_costmap']['ros__parameters']['inflation_layer'] = {'cost_scaling_factor': 8.0}
+    rpp['controller_server'] = {'ros__parameters': {'FollowPath': {
+        'plugin': 'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController',
+        'inflation_cost_scaling_factor': 8.0}}}
+    map_params(rpp, '/maps/f/map.yaml')
+    rpp['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor'] = 3.0
+    try:
+        map_params(rpp, '/maps/f/map.yaml')
+        raise AssertionError('a mismatched inflation_cost_scaling_factor was taken')
+    except ValueError as e:
+        assert '3.0' in str(e) and '8.0' in str(e), e
     print('nav2_map_params ok')
 
 

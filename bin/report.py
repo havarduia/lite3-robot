@@ -32,6 +32,8 @@ LOG_TIME = re.compile(r'\[(\d{10}\.\d+)\]')
 NUMBER = re.compile(r'-?\d+(\.\d+)?')
 TOP_PROCS = 5
 STEP_M = 0.05       # path_length: smaller moves are jitter
+MOVING_VX = 0.02    # m/s: a forward command at least this is walking, not standing or a turn on the spot
+FAST_VX = 0.45      # m/s: near the slow gait's top of 0.5
 
 
 def yaw_of(q):
@@ -236,6 +238,15 @@ def summarize(run):
     num['goals_succeeded'] = sum(g['result'] == 'succeeded' for g in done)
     num['goals_failed'] = sum(g['result'] == 'aborted' for g in done)
 
+    cv = run['cmd_vel']
+    fwd = cv[cv[:, 1] >= MOVING_VX, 1] if len(cv) else cv
+    if len(fwd):
+        num.update(vx_p50=float(np.median(fwd)), vx_p90=float(np.percentile(fwd, 90)), vx_max=float(fwd.max()),
+                   vx_fast_share=float(np.mean(fwd >= FAST_VX)), wz_max=float(np.abs(cv[:, 2]).max()))
+        out += ['', 'Speed commanded, walking: median %.2f m/s, p90 %.2f, max %.2f; %.2f m/s or more %.0f%% '
+                'of those commands; turn rate at most %.2f rad/s' % (
+                    num['vx_p50'], num['vx_p90'], num['vx_max'], FAST_VX, 100 * num['vx_fast_share'], num['wz_max'])]
+
     out += ['', 'Odometry (each track from its own first pose):']
     leg = run['/leg_odom2']
     for topic in ODOMS:
@@ -385,7 +396,8 @@ def compare(a, b, tags_file=None):
     if tags_file:
         na.update(tag_check(a, load_run(a), tags_file)[0])
         nb.update(tag_check(b, load_run(b), tags_file)[0])
-    print('%-28s %10s %10s %10s' % ('', os.path.basename(a.rstrip('/'))[:10], os.path.basename(b.rstrip('/'))[:10], 'b - a'))
+    name = lambda f: re.sub(r'^\d{4}-\d\d-\d\d_', '', os.path.basename(f.rstrip('/')))[:10]   # noqa: E731
+    print('%-28s %10s %10s %10s' % ('', name(a), name(b), 'b - a'))
     for k in sorted(set(na) | set(nb)):
         va, vb = na.get(k), nb.get(k)
         diff = '' if va is None or vb is None else '%10.2f' % (vb - va)
@@ -404,7 +416,8 @@ def made_up_run():
     return {
         'meta': {'name': 'made-up', 'via': 'none', 'start': t0, 'stop': t0 + 45},
         '/odom_fused': track(0), '/leg_odom2': track(0), '/lio_odom': track(0.01 * t),
-        'localized': loc, 'cmd_vel': np.column_stack([t0 + t, t * 0 + 0.2, t * 0]),
+        'localized': loc,
+        'cmd_vel': np.column_stack([t0 + t, np.where(t < 10, 0.5, 0.2), np.where((t >= 20) & (t < 30), -0.3, 0.0)]),
         'plans': [(t0 + 1, 7.5)], 'battery': [(t0, 80), (t0 + 40, 78)],
         'goals': goals([(t0 + 0.5, [(b'g1', 2)]), (t0 + 40.0, [(b'g1', 4)])]),
         'notes': [(t0 + 41, 'arrived 0.07 m')],
@@ -440,6 +453,10 @@ def check():
     # the track drawn from its own first pose: start at 0,0 whatever the odometry origin
     assert np.allclose(relative(run['/odom_fused'])[0, 1:], 0)
     assert 'recoveries 1' in text, text
+    # 100 commands at 0.5 m/s, 300 at 0.2; a 0.3 rad/s turn the other way
+    assert (num['vx_p50'], num['vx_max'], num['vx_fast_share'], num['wz_max']) == (0.2, 0.5, 0.25, 0.3), num
+    assert abs(num['vx_p90'] - 0.5) < 1e-9, num
+    assert 'median 0.20 m/s, p90 0.50, max 0.50; 0.45 m/s or more 25%' in text, text
     assert who({'comm': 'python3', 'args': 'python3 -m robot.lio_relay'}) == 'robot.lio_relay'
     assert who({'comm': 'python3', 'args': 'python3 /tmp/runlog/x/jetson/loadwatch.py a 9 2'}) == 'loadwatch.py'
     assert who({'comm': 'python3', 'args': 'python3 -u /home/lite3/web/app.py'}) == 'app.py'
