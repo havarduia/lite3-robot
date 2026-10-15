@@ -1052,6 +1052,19 @@ a hardware stop: keep the handheld at hand. For HTTPS, run
 `https://lite3-perception.<tailnet>.ts.net`; the server also listens on
 localhost for that.
 
+**Driving across eduroam access points.** Eduroam blocks devices from
+reaching each other directly (tested 2026-10-15: laptop and robot on the same
+subnet, no IPv4 or IPv6 reply), so the panel always goes through a Tailscale
+relay. When the motion computer's Wi-Fi changes access point it is back
+within about 1 s, but the campus network drops our connections and the
+perception computer's own cable link never changes, so its Tailscale
+noticed its relay was dead only after about 60 s (measured 2026-10-15). `env/roam-rebind.service`
+watches the motion computer's `iw event` and runs `tailscale debug rebind`
+the same second, which re-checks the relay within 3 s. Install it once with
+`sudo tailscale set --operator=ysc` and the commands in the file. Each change
+of access point still kicks the handheld off the robot's own Wi-Fi for about 5 s:
+it shares the one radio with eduroam.
+
 **Him, in 3D.** A third monitor under Cameras: the robot model posed from
 his joint angles, on a floor grid he walks across, with the two sonar beams
 and the depth scan of "Ahead of him" laid on the floor. Drag to look around

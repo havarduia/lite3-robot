@@ -1,0 +1,17 @@
+# Install on the perception computer (needs `sudo tailscale set --operator=ysc` once):
+#   sudo cp ~/robot/env/roam-rebind.service /etc/systemd/system/ && sudo systemctl enable --now roam-rebind
+# When the motion computer's wifi moves to another eduroam access point, the campus
+# network drops our connections, but this computer's own link never changes, so
+# Tailscale only notices its relay is dead ~60 s later. The rebind re-checks it within 3 s.
+[Unit]
+Description=Tailscale rebind when the motion computer roams (README.md, remote driving)
+After=tailscaled.service
+
+[Service]
+User=ysc
+ExecStart=/bin/bash -c 'ssh -o BatchMode=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3 ysc@192.168.1.120 iw event | grep --line-buffered "wlan0.*connected to" | while read -r l; do echo "$$l"; tailscale debug rebind; done'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
