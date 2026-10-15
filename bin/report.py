@@ -49,10 +49,15 @@ def read_bag(path, offset):
     reader.open(rosbag2_py.StorageOptions(uri=path, storage_id='sqlite3'),
                 rosbag2_py.ConverterOptions('cdr', 'cdr'))
     types = {t.name: get_message(t.type) for t in reader.get_all_topics_and_types()}
-    out = {}
+    out, unread = {}, set()
     while reader.has_next():
         topic, data, ns = reader.read_next()
-        out.setdefault(topic, []).append((ns * 1e-9 - offset, deserialize_message(data, types[topic])))
+        try:
+            out.setdefault(topic, []).append((ns * 1e-9 - offset, deserialize_message(data, types[topic])))
+        except Exception:       # a type that changed after Foxy (sensor_msgs/Range gained `variance`)
+            unread.add(topic)
+    if unread:
+        print('report: could not read %s (Foxy message, Jazzy definition)' % ', '.join(sorted(unread)), file=sys.stderr)
     return out
 
 

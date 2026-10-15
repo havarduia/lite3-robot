@@ -588,7 +588,26 @@ There is no pre-built map and no SLAM. Everything is in the **odom frame**
   sees (lidar too close and too thin, depth and front sonar too far to
   the side). He now moves where his sensors look and turns in place
   instead. AMCL keeps its sideways-slip model: legs do slip.
-- Planner **NavFn**; controller **DWB**. Goal tolerance 0.15 m in xy (the
+- **Controller: Regulated Pure Pursuit** since 2026-10-15 (`FollowPath`;
+  DWB is kept beside it as `FollowPathDWB`, and the two bullets above are
+  its tuning). DWB walked about 0.3 m/s everywhere: its GoalDist critic
+  aims only `prune_distance` (1.0 m) along the route, so the best
+  trajectory covers 1.0 m in `sim_time` (3 s). Made faster (`sim_time`
+  2 s) it held that speed into the lab door and stopped in the doorway
+  where the planner could not start. RPP follows the planned route at up
+  to `desired_linear_vel` 0.5 m/s (the slow gait's top) and slows by
+  itself: in curves tighter than 0.9 m, within the walls' inflation
+  (`cost_scaling_gain` 0.5: about 0.15 m/s through the lab door) and into
+  the goal. It turns on the spot first when the route is more than 45°
+  off his heading. It never steers round an obstacle: it stops before one
+  (`max_allowed_time_to_collision` 1 s ahead) and the planner, which
+  replans every second on the map and the lidar, routes round it; what
+  only the camera or a sonar sees makes him wait. Its
+  `inflation_cost_scaling_factor` must equal the local inflation's
+  `cost_scaling_factor`; `env/nav2_map_params.py` refuses to start map
+  mode otherwise. Foxy's RPP has no turn-rate limit: 0.72 rad/s at most so
+  far. The walks are in `LIDAR_ORIN_LOG.md` section 33.
+- Planner **NavFn**. Goal tolerance 0.15 m in xy (the
   vendor's value again since 2026-10-08; it was 0.25 while the approach
   wiggle made the last stretch messy. At 0.15: stops 0.15 m from the goal,
   one second later, no stepping around it; one run) and
@@ -1500,7 +1519,7 @@ diffs against the vendor originals.
 | `transfer-jetson2motion.patch` | the UDP↔ROS bridge | **caps what it republishes**: odometry, sonars, state and handheld at 50 Hz, joint states at 10 Hz, instead of every one of the ~160 packets a second (parameters `state_hz`, `handle_hz`, `joint_hz`; 0 = every packet; the IMU stays at 160 Hz because VOA pairs it with each point cloud). Each subscriber pays per message and together they had the Jetson at 3% idle (section 12); publishes the **front** sonar (stock published only the rear); adds **battery**, error, charging to the state array (a flat battery used to be invisible: the robot just silently refused to stand); scales leg odometry x/y by **1.15**; fixes a race where every velocity reached the robot **twice** (raw and obstacle-corrected), so the obstacle avoider could never veto anything |
 | `voa-lite3.patch` | vendor obstacle avoider | odometry averaging window 10 → 3 samples, the same ~60 ms now that odometry comes at 50 Hz; the idle handheld publishes zeros at ~160 Hz, which overwrote every ROS velocity; now ignored. A dead sender's last command times out after 500 ms. The config file named a node that doesn't exist, so **every parameter was silently ignored**: fixed |
 | `rtsp-stream-push.patch` | front camera push (`~/rtsp_stream/push_video.sh` on the **motion** computer) | **retries**. The boot script starts the stream server and the camera push side by side; when the push got there first (2026-10-07) it failed to connect and exited for good, so the front camera had no picture until the next boot (`mediamtx` logs "no one is publishing to path 'test'"). Now it is a loop that tries again every 2 s. Backup beside the file as `push_video.sh.pre-retry` |
-| `nav2-mapless-lite3.patch` | Nav2 config, and the launch file | range layer for the sonars, scan layer for the lidar, voxel decay 2→15 s, inflation 0.30→0.45 m with cost scaling 10→8, `PreferForward.strafe_x` 0.3→0.05 and no sideways movement (`max/min_vel_y` 0, §7.1), goal tolerance in xy left at the vendor's 0.15, footprint padding 0.10→0.05, yaw tolerance "any"; the launch no longer starts `odom_to_tf.py`: `lio_relay.py` publishes `odom -> base_link` itself (§10.7) |
+| `nav2-mapless-lite3.patch` | Nav2 config, and the launch file | range layer for the sonars, scan layer for the lidar, voxel decay 2→15 s, inflation 0.30→0.45 m with cost scaling 10→8, the controller is Regulated Pure Pursuit (0.5 m/s, slower in curves, near walls and into the goal, §7.1) with DWB kept as `FollowPathDWB`: its `PreferForward.strafe_x` 0.3→0.05 and no sideways movement (`max/min_vel_y` 0), goal tolerance in xy left at the vendor's 0.15, footprint padding 0.10→0.05, yaw tolerance "any"; the launch no longer starts `odom_to_tf.py`: `lio_relay.py` publishes `odom -> base_link` itself (§10.7) |
 | `realsense-ros-4.58.3-lite3.patch` | camera driver | re-adds the vendor's two cloud changes to the newer driver: steady-clock timestamps (so TF lookups work) and a 5 cm PCL voxel filter |
 
 ### 11.3 Camera stack
@@ -1762,7 +1781,7 @@ scripted-run wrapper nothing used) with it: `git show c4cfb84:archive/backups/RE
 | **costmap** | grid of traversal costs (0 free … 99 lethal) Nav2 plans on |
 | **STVL** | Spatio-Temporal Voxel Layer: costmap layer of decaying 3D voxels |
 | **inflation** | costmap layer that adds cost near obstacles, keeping the robot away from them |
-| **NavFn / DWB** | Nav2's global path planner / local trajectory controller |
+| **NavFn / RPP / DWB** | Nav2's global path planner / the local controller since 2026-10-15 (Regulated Pure Pursuit) / the one before it |
 | **CycloneDDS** | the DDS middleware ROS2 uses here (the default FastRTPS doesn't work on this robot) |
 | **RMW** | ROS middleware interface; selects the DDS implementation |
 | **Piper** | offline neural text-to-speech |

@@ -3,7 +3,7 @@
 **Spec**: none. Planned from the 2026-10-15 conversation (four speed test walks, below)
 **Epic**: none
 **Created**: 2026-10-15
-**Status**: in progress (2026-10-15: phase 1 done; tasks 4-5 done on the robot, backups `*.pre-rpp`; task 6 waits for the reload)
+**Status**: done (2026-10-15). Phases 1, 2 and 4 done; walks W1 and W3 passed (W3 with `cost_scaling_gain` 0.5), the user's blocking test covered W4 and the corridor part of W2; W5 and W6 skipped by the user's choice. Results in `LIDAR_ORIN_LOG.md` section 33.
 
 Stack: Nav2 Foxy 0.4.7 on the perception computer, configured through the
 vendor's `lite_nav2_mapless.yaml` (two copies on the robot: `src` and
@@ -111,7 +111,7 @@ so going back is one line plus a reload.
 | `env/nav2_map_params.py` | repo | `check`: when `FollowPath` is RPP, its `inflation_cost_scaling_factor` equals the local inflation layer's `cost_scaling_factor`; `map_params()` raises if not |
 | `env/runlog_topics.txt` | repo | `/lookahead_point` added (RPP's aim point, a light PointStamped) |
 | `bin/report.py` | repo | speed lines in the summary: commanded vx p50/p90/max, share of time at 0.45 m/s or more, largest wz; `--compare` gets them |
-| `LIDAR_ORIN_LOG.md` | repo | section 30: the 2026-10-15 speed walks (table above) and the RPP results |
+| `LIDAR_ORIN_LOG.md` | repo | section 33: the 2026-10-15 speed walks (table above) and the RPP results |
 | `README.md` | repo | patch row in the env table; the Nav2 section says RPP and why |
 
 No robot Python changes: nothing in `robot/` depends on DWB. `nav.py`'s
@@ -157,7 +157,7 @@ Compare each with `bin/report.py --compare` against `speed-base` (and
 
 | # | Task | Files |
 |---|---|---|
-| 7 | Section 30: the four DWB speed walks and the RPP walks, numbers and verdict | `LIDAR_ORIN_LOG.md` |
+| 7 | Section 33: the four DWB speed walks and the RPP walks, numbers and verdict | `LIDAR_ORIN_LOG.md` |
 | 8 | Nav2 section and patch row | `README.md` |
 
 ## Stop and go back to DWB if

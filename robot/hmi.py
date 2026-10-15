@@ -254,9 +254,9 @@ class Robot:
         finally:
             self.mapping = None
 
-    def go_point(self, x, y):
+    def go_point(self, x, y, deg=None):
         self.target = [round(x, 2), round(y, 2)]
-        return status_text(self.bot.go_to_point(x, y))
+        return status_text(self.bot.go_to_point(x, y, yaw_deg=deg))
 
     def service(self, which, on):
         self.services[which] = getattr(P, which)(on)
@@ -602,7 +602,9 @@ class Server:
             r.submit('here', r.bot.set_pose, float(c['x']), float(c['y']), float(c.get('deg') or 0))
         elif k == 'go_point':
             # 'goto ...' so the page shows Cancel, as for a Go ahead
-            r.submit('goto map %.1f, %.1f' % (float(c['x']), float(c['y'])), r.go_point, float(c['x']), float(c['y']))
+            deg = None if c.get('deg') is None else float(c['deg'])    # none: he ends facing the way he came
+            r.submit('goto map %.1f, %.1f%s' % (float(c['x']), float(c['y']), '' if deg is None else ' facing %.0f°' % deg),
+                     r.go_point, float(c['x']), float(c['y']), deg)
         elif k in ('camera', 'voa'):
             r.submit('%s %s' % (k, 'on' if c.get('on') else 'off'),
                      r.service, k, bool(c.get('on')))

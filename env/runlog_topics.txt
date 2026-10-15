@@ -19,6 +19,11 @@
 /local_plan
 # RPP's aim point on the route (plan rpp-controller); nothing while DWB drives
 /lookahead_point
+# what stopped him: RPP's collision check path, and the costmap and sonar it checks against
+# (W1 2026-10-15: a 3 s "collision ahead" stop at the lab door, cause not recorded)
+/lookahead_collision_arc
+/local_costmap/costmap
+/sonar/front
 /navigate_to_pose/_action/status
 /global_costmap/costmap
 

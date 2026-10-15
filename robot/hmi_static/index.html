@@ -655,8 +655,10 @@ function drawMap() {
   const ready = m && MAP.img && MAP.floor === m.floor;
   $('map-ok').hidden = $('map-no').hidden = !(ready && pick);
   $('map-ok').textContent = pick && pick.here ? 'Set position' : 'Go here';
+  $('floormap').classList.toggle('here', hereOn() || !!pick);   // a drag sets a heading, not a scroll
   $('map-hint').textContent = !m ? 'Pick a floor and press Load. He should be standing.'
-    : pick ? `${pick.here ? 'He is at' : 'Send him to'} ${fmt(pick.x, 1)}, ${fmt(pick.y, 1)} m` + (pick.here ? `, facing ${fmt(pick.deg, 0)}°?` : '?')
+    : pick ? `${pick.here ? 'He is at' : 'Send him to'} ${fmt(pick.x, 1)}, ${fmt(pick.y, 1)} m` +
+      (pick.deg != null ? `, facing ${fmt(pick.deg, 0)}°?` : '? Drag on the map for the way he should face.')
     : hereOn() ? 'Press where he stands and drag the way he faces.'
     : m.why ? `He cannot be sent anywhere: ${m.why}. Press I am here.`
     : 'Press a spot to send him there.';
@@ -695,8 +697,8 @@ function drawMap() {
   if (m.pose) him(m.pose[0], m.pose[1], m.pose[2], !m.why);
   if (pick) {                                                 // what the next key press would do
     g.strokeStyle = col('--yellow'); g.lineWidth = 2;
-    if (pick.here) him(pick.x, pick.y, pick.deg * Math.PI / 180, false);
-    else { g.setLineDash([5, 4]); ring(pick.x, pick.y, 9); g.setLineDash([]); }
+    if (pick.deg != null) him(pick.x, pick.y, pick.deg * Math.PI / 180, false);
+    if (!pick.here) { g.setLineDash([5, 4]); ring(pick.x, pick.y, 9); g.setLineDash([]); }
   }
 }
 new ResizeObserver(drawMap).observe($('floormap'));
@@ -711,20 +713,21 @@ function mapPoint(e) {
 $('floormap').addEventListener('pointerdown', (e) => {
   const p = mapPoint(e); if (!p) return;
   MAP.down = { ...p, cx: e.clientX, cy: e.clientY };
-  if (hereOn()) $('floormap').setPointerCapture(e.pointerId);
+  if (hereOn() || MAP.pick) $('floormap').setPointerCapture(e.pointerId);
 });
 const mapDrag = (e, done) => {
   const d = MAP.down; if (!d) return;
   const dx = e.clientX - d.cx, dy = e.clientY - d.cy, far = Math.hypot(dx, dy) > TAP_PX;
+  const dragDeg = Math.round(Math.atan2(-dy, dx) * 180 / Math.PI);   // the map's y runs up, the screen's down
   if (hereOn()) {                                             // the drag is the way he faces; a plain press keeps his heading
     const now = lastStatus && lastStatus.map && lastStatus.map.pose;
-    const deg = far ? Math.atan2(-dy, dx) * 180 / Math.PI : now ? now[2] * 180 / Math.PI : 0;
-    MAP.pick = { x: d.x, y: d.y, deg: Math.round(deg), here: true };
-  } else if (done && !far && !(lastStatus.map || {}).why) MAP.pick = { x: d.x, y: d.y };
+    MAP.pick = { x: d.x, y: d.y, deg: far ? dragDeg : now ? Math.round(now[2] * 180 / Math.PI) : 0, here: true };
+  } else if (far && MAP.pick) MAP.pick = { ...MAP.pick, deg: dragDeg };   // after a goal press: the way to end up facing
+  else if (done && !far && !(lastStatus.map || {}).why) MAP.pick = { x: d.x, y: d.y };   // a heading only by dragging again
   if (done) MAP.down = null;
   drawMap();
 };
-$('floormap').addEventListener('pointermove', (e) => { if (hereOn()) mapDrag(e, false); });
+$('floormap').addEventListener('pointermove', (e) => { if (hereOn() || MAP.pick) mapDrag(e, false); });
 $('floormap').addEventListener('pointerup', (e) => mapDrag(e, true));
 $('floormap').addEventListener('pointercancel', () => { MAP.down = null; });    // the page scrolled instead
 $('map-here').addEventListener('click', () => { setHere(!hereOn()); MAP.pick = null; drawMap(); });
@@ -732,7 +735,7 @@ $('map-no').addEventListener('click', () => { MAP.pick = null; drawMap(); });
 $('map-ok').addEventListener('click', () => {
   const p = MAP.pick; if (!p) return;
   const at = { x: +p.x.toFixed(2), y: +p.y.toFixed(2) };
-  send(p.here ? { cmd: 'here', ...at, deg: p.deg } : { cmd: 'go_point', ...at });
+  send({ cmd: p.here ? 'here' : 'go_point', ...at, ...(p.deg != null && { deg: p.deg }) });   // a goal without a drag has no heading
   MAP.pick = null; setHere(false); drawMap();
 });
 $('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });

@@ -1822,3 +1822,76 @@ right of the door with a red sign on it, flat on the wall. Its survey stays
 valid as long as it goes back there; in `env/tags/lab2b.json` it is marked
 `temporary` with that placement. Height off the floor hardly matters: the
 check uses only where a tag is along the floor and which way it faces.
+
+## 33. Faster with Nav2: DWB's limit, then Regulated Pure Pursuit (2026-10-15)
+
+The user wanted him faster going forward; the slow gait tops out at
+0.5 m/s. Every walk: `lab2b`, start mark to about (2.5, 0.3) through the
+lab door and back, sent from the panel, recorded with `bin/run.py`. For the
+DWB walks a small subscriber kept DWB's per-critic scores from
+`/evaluation` (`eval.jsonl` in each log folder; it cost 44-59% of a Jetson
+core, in the good walk as well as the bad ones).
+
+**Why DWB walked 0.3 m/s.** Nothing capped it: `max_vel_x` was 1.0,
+`/leg_odom2` reported his speed correctly (0.35 m/s against 0.34 from
+`/odom_fused`), and DWB sampled speeds up to 1.0. It chose 0.30 because of
+GoalDist: Foxy's DWB keeps only `prune_distance` (default 1.0 m) of the
+route, and GoalDist scores the distance from a trajectory's end to the end
+of that piece. The best trajectory therefore ends 1.0 m on, after
+`sim_time` 3 s: 0.33 m/s. In the scores, GoalDist was lowest at 0.30 (3)
+and climbed with every faster sample (0.46 m/s 15, 1.0 m/s 60).
+
+| Log `2026-10-15_...` | Change (DWB) | Speed chosen | Result |
+|---|---|---|---|
+| `speed-base` | none | 0.30 from the start | arrived both ways, 26.4 s and 21.6 s |
+| `speed-1.6` | `prune_distance` 1.6, top speed 0.5 | 0.06 | stuck at the door, 8 progress failures, aborted |
+| `speed-sim2` | `sim_time` 2.0, top speed 0.5 | 0.06 | crawled, cancelled |
+| `speed-sim2b` | `sim_time` 2.0, top speed 1.0 | 0.41-0.52 | stopped in the doorway, NavFn failed 9 times |
+
+- A DWB top speed of 0.5 made it crawl at 0.06 m/s in both runs that had
+  it (it changes the speeds DWB samples); why exactly is not understood.
+- `prune_distance` 1.6 moved GoalDist's target round the door turn: it
+  stopped rewarding speed (50-60 for every sample) while PathDist and
+  PathAlign (`sum`) still grew with it.
+- `sim_time` 2.0 with the top speed left at 1.0 gave the speed, as the
+  arithmetic says (1.0 m / 2 s), but DWB holds one speed everywhere: he
+  reached the lab door at that speed, cut the corner and stopped on a cell
+  of cost 99 (inscribed) at about (1.47, 2.52), and NavFn will not plan
+  from there.
+
+All four reverted; the robot's copies of the tried files are kept as
+`*.speed-1.6`, `*.speed-sim2`, `*.speed-sim2b`.
+
+**Regulated Pure Pursuit** (`.planning/plans/rpp-controller.md`): already
+installed in Foxy 0.4.7. `FollowPath` is now RPP, DWB stays in the file as
+`FollowPathDWB` (backups `*.pre-rpp`). Values in README §7.1 and the patch.
+
+| Log `2026-10-15_...` | Out | Back | Speed walking (median / max) | At the lab door |
+|---|---|---|---|---|
+| `speed-base` (DWB) | 26.4 s, 5.4 m | 21.6 s, 5.5 m | 0.25 / 0.36 | passes |
+| `rpp-w1` | 18.2 s, 6.9 m | 18.0 s, 6.7 m | 0.45 / 0.50 | 0.35-0.5 m/s, then "collision ahead": 3 s stop each way |
+| `rpp-w3` (`cost_scaling_gain` 0.5) | 20.1 s; 17.3 s | 17.3 s | see below | 0.15 m/s median, 0.21 max, no stop, 3 passes |
+
+- W1's door stops: RPP's collision check projects the current arc
+  `max_allowed_time_to_collision` (1 s) ahead, 0.5 m at full speed. The
+  cost-based slowdown only acts within the walls' inflation (0.45 m), and
+  at `cost_scaling_gain` 1.0 it took him from 0.50 to only 0.34. The
+  controller aborted, the BT cleared the local costmap, waited 3 s and went
+  on. What exactly the check hit was not recorded. Runs now also record
+  `/lookahead_collision_arc`, `/local_costmap/costmap` and `/sonar/front`
+  (Foxy's `sensor_msgs/Range` cannot be read with Jazzy's definition;
+  `bin/report.py` now skips such a topic and says so).
+- Gain 0.5 (backups `*.pre-gain`): the door at 0.15 m/s, no stop, three
+  times. One "collision ahead" at 64.8 s, at the far end while he turned
+  round for the way back, with no pause over 0.8 s.
+- Blocked by the user at the end of `rpp-w3` (goal 4): he stopped (2-6 s,
+  four times), the planner routed round the user (the global costmap has
+  the lidar) through the other lab door and the long corridor, and he
+  arrived: 65.7 s, 17.7 m on an 11.4 m plan. In the corridor 44% of the
+  walking commands were at 0.45 m/s or more, the longest unbroken stretch
+  5.6 s (about 2.7 m); the largest turn 0.60 rad/s.
+- Largest turn rate on any RPP walk 0.72 rad/s (Foxy's RPP has no turn-rate
+  limit; DWB's was 0.8). The Jetson was 69% busy on W1 against 77% for the
+  DWB base walk (that one had the score subscriber running).
+- Not walked, by the user's choice: a goal behind him (spinning check) and
+  person following in mapless mode, which uses the same controller.

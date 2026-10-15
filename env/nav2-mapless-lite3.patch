@@ -151,7 +151,7 @@
  
 +    # Regulated Pure Pursuit (2026-10-15, .planning/plans/rpp-controller.md): up to the slow
 +    # gait's 0.5 m/s, slower in curves, near walls and into the goal. DWB held ~0.3 m/s
-+    # everywhere and failed the lab door when made faster (LIDAR_ORIN_LOG.md section 30).
++    # everywhere and failed the lab door when made faster (LIDAR_ORIN_LOG.md section 33).
      FollowPath:
 +      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
 +      desired_linear_vel: 0.5
@@ -171,7 +171,7 @@
 +      regulated_linear_scaling_min_speed: 0.15
 +      use_cost_regulated_linear_velocity_scaling: true
 +      cost_scaling_dist: 0.6
-+      cost_scaling_gain: 1.0
++      cost_scaling_gain: 0.5   # was 1.0: W1 reached the lab door at 0.35-0.5 m/s and stopped 3 s (2026-10-15)
 +      inflation_cost_scaling_factor: 8.0   # must equal the local inflation_layer's cost_scaling_factor
 +      use_approach_linear_velocity_scaling: true
 +      min_approach_linear_velocity: 0.05
