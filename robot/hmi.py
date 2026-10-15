@@ -29,7 +29,7 @@ from . import mapmaker
 from . import person
 from . import places
 from .lite3 import BATTERY_REFUSE, BATTERY_WARN, HARD_TIMEOUT, LYING, Lite3
-from .nav import REPO, clamp, status_text
+from .nav import CANCELED, REPO, SUCCEEDED, clamp, status_text
 from .protocol import Lite3Error
 from .rviz import height
 from .sonar_range import FOV, SONARS
@@ -37,6 +37,12 @@ from .sonar_range import FOV, SONARS
 PORT = 8080
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hmi_static')
 
+# What he says on a map goal (nav.go_to_point's say()). Fixed lines: quick and the same every time.
+SAY = {'start': 'On my way.', 'arrived': "I'm here.", 'failed': "I couldn't get there.",
+       'door': 'The door is closed. Could you open it for me, please?',
+       'door_again': 'Could someone open the door for me, please?',
+       'door_open': 'Thank you!', 'door_round': "I'll go another way.",
+       'other': 'Excuse me, could you let me pass?'}
 DEADMAN_S = 0.3        # drive halts this long after the last stick message
 FORWARD_STOP_M = 0.6   # camera clearance (from body centre), as walk()
 REAR_STOP_M = 0.5      # rear sonar reading
@@ -256,7 +262,18 @@ class Robot:
 
     def go_point(self, x, y, deg=None):
         self.target = [round(x, 2), round(y, 2)]
-        return status_text(self.bot.go_to_point(x, y, yaw_deg=deg))
+        try:
+            status = self.bot.go_to_point(x, y, yaw_deg=deg, say=self.say)
+        except Lite3Error:
+            self.say('failed')
+            raise
+        self.say('arrived' if status == SUCCEEDED else None if status == CANCELED else 'failed')
+        return status_text(status)
+
+    def say(self, what):
+        """One of SAY aloud, in the persona's voice, beside whatever he is doing."""
+        if what in SAY:
+            self.talk('say', SAY[what], self.persona)
 
     def service(self, which, on):
         self.services[which] = getattr(P, which)(on)

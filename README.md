@@ -708,8 +708,19 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   "Record & map" (LIDAR_ORIN_LOG.md section 17). Its origin is where the
   lidar was when the run started; `base_link` was 0.20 m behind that.
   On the way `get_map.sh` makes the cells within 0.6 m of the walked path
-  free floor (`env/walked_free.py`; walls stay walls): the slicer leaves
-  the run's start and cluttered rooms unseen, and unseen is a wall here.
+  free floor (`env/walked_free.py`): the slicer leaves the run's start and
+  cluttered rooms unseen, and unseen is a wall here. Walls stay walls,
+  except where the path crosses one: he walked through it, so it is a
+  door (open, or its leaf sliced as wall), and a 0.8 m gap is opened
+  there. `big_walk_to_arcade` crossed 16 such cells and had no route past
+  its first door without it.
+- **A walk between levels** (a ramp, a slope): the Orin splits it into
+  one floor per storey, and Nav2 cannot route between two floor maps. Make
+  it one floor instead: on a copy of the run, `kiss_flatten.py` (takes the
+  path's height out, the slope included) then `map_walls.py --one-floor`.
+  The panel's Save already asks for one floor; `big_walk_to_arcade` (a
+  1.4 m drop over 27 m at 3°) was made this way (LIDAR_ORIN_LOG.md
+  section 34).
 - **What runs** (`env/start_nav2_map.sh <floor>`): the mapless stack with
   its global costmap moved to the `map` frame and the map as its first
   layer, a map server, AMCL, and `robot/locate.py`. The parameters are
@@ -758,6 +769,40 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   to give, and the first thing to run when he will not localize.
 
 ---
+
+### 7.6 What he says on a map goal, and closed doors
+
+A goal pressed on the panel's map (`go_point`) is spoken aloud in the
+persona's voice (`talk.say`: Gemini's voice, Piper offline), from fixed
+lines in `robot/hmi.py`'s `SAY`: "On my way." once a route is found,
+"I'm here." on arrival, "I couldn't get there." when it fails or is
+refused, nothing when you cancel it.
+
+**A closed door** (`robot/doorway.py`, `nav._watched_goal`). About four
+times a second while Nav2 drives, the route he set off on is looked along
+for 4 m: a point the global costmap now blocks (99 or more: his centre may
+not go there) is something new in the way. If the floor map has wall within
+0.8 m on both sides of the route there, or within 0.5 m of there along it
+(a shut door's inflation blocks the route before the door itself), it is a
+door. Nav2 would plan another way at once, so the goal is stopped first,
+and he asks: "The door is closed. Could you open it for me, please?" When
+the costmap clears there ("Thank you!") the goal goes out again. After
+15 s he asks again; after 30 s he goes another way if the planner finds one
+("I'll go another way.", and that door is not stopped at again); if there
+is none he waits on and asks every 30 s, until the goal's time (5 min) or
+Cancel. Cancel and E-STOP end the wait like a goal.
+
+**Anything else in the way** (a person, a box: the map is open on at
+least one side there) leaves Nav2 to it: RPP stops in front of it and the
+planner routes round it. Once it has held him still for 2 s within 1.5 m
+he says "Excuse me, could you let me pass?", once until it clears.
+
+A door is only known from the map: one open while mapping and drawn as a
+gap counts (the lab door does), a doorway in a wide-open hall does not. A
+person standing in a doorway is asked to open the door. Checked with no
+robot in `demos/check_motion.py` (opened, round another way, no other way
+and cancelled, something in the open) and `python3 -m robot.doorway check`;
+not yet on the robot.
 
 ## 8. Finding and following people
 

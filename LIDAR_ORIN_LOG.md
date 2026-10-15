@@ -1895,3 +1895,30 @@ installed in Foxy 0.4.7. `FollowPath` is now RPP, DWB stays in the file as
   DWB base walk (that one had the score subscriber running).
 - Not walked, by the user's choice: a goal behind him (spinning check) and
   person following in mapless mode, which uses the same controller.
+
+## 34. `big_walk_to_arcade`: a walk down a slope, made one floor (2026-10-15)
+
+The user's walk from the lab to the arcade, saved on the Orin as
+`bigmap_to_arcade_20261015_142950` (5,819 path points). The Orin split it
+into two floors: the path ran at z ≈ 0 (points 0-4583), then down a
+corridor 27.3 m long at about 3° (1.4 m drop, points 4584-5229, at
+x ≈ -78), then at z ≈ -1.9 to the end (the arcade). Nav2 takes one floor
+map, and the start (0, 0) was only on `floor1`, so neither floor alone
+could take him to the arcade.
+
+Made one floor on a copy, `big_walk_to_arcade_20261015_142950` (the
+original untouched): `kiss_flatten.py` (path height 2.2 m -> 0.06 m; it
+warns against ramps, which matters for the 3D cloud, not for a floor
+plan), then `map_walls.py --one-floor`. The arcade lies south of the upper
+level, not under it, so nothing is drawn over anything else. Installed as
+floor `big_walk_to_arcade` with `start` at (-0.2, 0, 0), through the same
+steps as the panel's Save (`floor_free` freed 56,801 cells).
+
+No route: with walls and unseen cells grown by 0.25 m (his centre's
+closest approach), only 40% of the walk was reachable from the start; the
+first block at (1.4, -4.5). 1.2% of the path's cells (70, in 16 places
+along the corridors) were wall: doors he walked through. `walked_free.py`
+now opens a 0.8 m gap (`THROUGH_M` 0.4) wherever the path crosses a wall
+(341 cells here); walls beside the path still stay. After it: a route from
+the start to the arcade end, 96% of the walk reachable (the rest are small
+pockets near the start). Not yet driven: no Nav2 run on this floor yet.
