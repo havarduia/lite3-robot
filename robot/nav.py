@@ -29,7 +29,9 @@ NAV_NEVER = ('jetson2motion', 'transfer_ros2', 'start_transfer',
              'voa_ros2')
 
 LETHAL = 99
-LOC_STALE_S = 1.5       # locate.py speaks twice a second; quiet this long, he does not know where he is
+LOC_STALE_S = 3.0       # locate.py speaks twice a second; quiet this long, he does not know where he is.
+                        # Was 1.5: on the 200 m arcade map the panel's ROS thread fell behind and six
+                        # goals in a row ended "couldn't get there" (2026-10-15, cause not proven)
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
 FIT_POSE_STD = (0.1, 0.1)   # and one checked against the walls (demos/check_map.py's best fit)
 ROUTE_TIMEOUT = 300.0   # s for one go_to(): 30 m takes about two minutes

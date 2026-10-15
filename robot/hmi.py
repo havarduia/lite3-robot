@@ -181,6 +181,9 @@ class Robot:
     # --- commands --------------------------------------------------------
     def log(self, msg, level=None):
         self.emit({'t': 'log', 'level': level, 'msg': msg})
+        # also to stdout (/tmp/hmi.log when started with nohup): the page's log is gone with the page,
+        # and a goal that failed far from the laptop left no reason behind (2026-10-15)
+        print('%s %s%s' % (time.strftime('%H:%M:%S'), '' if level is None else level + ': ', msg), flush=True)
 
     def warn(self, msg, every=3.0):
         """A warning, but at most once per `every` s: the drive pad sends 10

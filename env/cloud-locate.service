@@ -15,6 +15,11 @@ WorkingDirectory=/home/lite3/bin
 Environment=HOME=/home/lite3
 Environment=ROS_DOMAIN_ID=42
 Environment=PYTHONUNBUFFERED=1
+# One thread and lower priority: numpy's maths spread a fix over all six cores and starved FAST-LIO2
+# and lio-send (cloud-w2, 2026-10-15: 18 gaps over 0.5 s in its poses against 6 without this node)
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Nice=10
 ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash; exec python3 /home/lite3/bin/cloud_locate.py'
 Restart=always
 RestartSec=5

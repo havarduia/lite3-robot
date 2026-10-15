@@ -1922,3 +1922,81 @@ now opens a 0.8 m gap (`THROUGH_M` 0.4) wherever the path crosses a wall
 (341 cells here); walls beside the path still stay. After it: a route from
 the start to the arcade end, 96% of the walk reachable (the rest are small
 pockets near the start). Not yet driven: no Nav2 run on this floor yet.
+
+## 35. 3D localization offline: Gate A (2026-10-15)
+
+Plan `.planning/plans/cloud-localization.md`, phase 0. `robot/cloudreg.py`
+(4-DoF point-to-plane ICP, numpy and scipy only) and `bin/locate_replay.py`,
+which localizes one recorded walk's scans (`scans.bin`) on another walk's
+cloud, through the same `Tracker` the Orin node will use.
+
+**Test pairs.** `live_20261015_143713` turned out NOT to be the arcade route:
+8-18 m from it for most of the walk and about 1.5 m higher (another level).
+Usable pairs: `lab2b_20261014_165759` (37 m in the lab, the day before) on
+`bigmap_to_arcade_20261015_142950`; and that walk on itself, the only one
+across the bridge (optimistic: same data).
+
+**What had to change** (lab pair, wander of the correction, whose truth is
+near constant):
+
+| Version | Wander x / y / yaw | Refused |
+|---|---|---|
+| one scan a fix | 5.4 m / 4.0 m / 100 deg | 14% |
+| 3 s stack (30 scans), 0.3 m / 3 deg jump gate, walls-only fitness | 0.22 / 0.15 m / 2.8 deg | 28% |
+| + surface filter 0.05 -> 0.2 (16% -> 54% of the map kept) | 0.04 / 0.07 m / 0.8 deg | 0% |
+
+- One 0.1 s scan is ~2000 cells, half within 2 m, mostly floor and ceiling:
+  too little to hold x, y and yaw. Stacks of FAST-LIO2's registered scans are
+  free to make (one frame already).
+- Floor and ceiling fit whatever the sideways error, so plain fitness stayed
+  0.9+ on wrong fits. `wall_fitness`: of the points not on floor or ceiling,
+  the share on a wall.
+- Weakness judged for x, y and yaw against each other, z on its own: against
+  the floor's eigenvalue every sideways direction looked weak.
+- The refusals left before the last row were right (the kept correction fit
+  the walls at 0.74-0.89 while ICP slid 0.4-0.8 m), but ICP slid because it
+  had ~45 wall points against ~1500 floor ones: the strict surface filter had
+  dropped most of the map's walls.
+
+**Gate A, on the Orin** (idle robot; numpy 1.21, scipy 1.8):
+
+| Walk on map | Wall fit med / min | Refused | Weak | Biggest jump | s a fix |
+|---|---|---|---|---|---|
+| lab2b on the arcade map | 0.99 / 0.98 | 0 | none | 0.03 m | 0.31 |
+| arcade walk on itself: bridge | 0.99 / 0.95 | 0 | none | 0.05 m | 0.43 |
+| ... long corridor | 0.97 / 0.93 | 0 | none | 0.09 m | 0.34 |
+| ... arcade | 0.90 / 0.74 | 0 | none | 0.13 m | 0.23 |
+
+Passed: no jump over 0.3 m, under 0.5 s a fix (the bridge was 0.53 s
+before stacks were capped at 6000 points). The bridge holds in 3D: walls fit
+0.99 where the AMCL slice saw little (section 34's parapet). Not shown yet:
+accuracy on the bridge from an independent walk (needs a recorded walk, plan
+W3), and the time with FAST-LIO2 and the cameras running. Fix-to-fix jitter
+is 2-5 cm (to 0.1 m in the arcade): the node will smooth the correction.
+
+## 36. 3D localization on the robot: walks W1-W3 (2026-10-15)
+
+`LOCALIZER=cloud`, no AMCL. Logs `2026-10-15_cloud-w1`, `cloud-w2`, `cloud-w3-bridge`.
+
+- **W1, lab2b start mark:** localized at (-0.24, -0.05, 0.9 deg) for the tape's (-0.2, 0, 0); walls fit
+  1.00, the correction steady to ~1 cm. "I am here" 0.5 m off: corrected by one search. First a false
+  "FAST-LIO2 restarted": the search held the node's one ROS thread for seconds, the /Odometry queue
+  overflowed, and a gap in its stamps read as a restart. Restarts are now taken from the live run's
+  age falling (the Orin's state); after that a search took 2.4 s with no false restart.
+- **W2, lab2b, door route out and back twice:** 4 of 4 goals, localized 100% of the time, spread
+  0.00 m (AMCL's rpp-w3: 0.42 m), legs 19-21 s; Orin 52% busy (47% without the node). 208 fixes, 89%
+  accepted; the other 11% were all "tilted": the Orin's tilt reading follows the accelerometer while
+  he walks. Now checked only before he is placed. The relay fell back to leg odometry 4 times (0 in
+  the AMCL runs): FAST-LIO2's poses had 18 gaps over 0.5 s (6 without the node), numpy spreading each
+  fix over all six cores. The service now runs it on one thread at Nice 10. AprilTags: 0.17 m median
+  against AMCL's 0.10, but the tags were surveyed with AMCL's poses, so they carry its bias: not a fair
+  judge here.
+- **W3, big_walk_to_arcade towards the bridge:** the localizer held: 341 fixes, 100% accepted, walls
+  fit median 0.99, localized 100% of the time. The goals did not: six in a row ended after 2-16 s
+  (0.5-5.5 m each, the plan 135 m -> 90 m) with "I couldn't get there", Nav2 saying the client
+  cancelled. The panel's messages were not saved, so the reason is not known. Likeliest: the
+  perception computer, busier on this 200 x 125 m map (load average 17 against 12.8, peaks 93%,
+  "Planner loop missed its desired rate"), held the panel's ROS thread up past LOC_STALE_S (1.5 s), so
+  go_to_point took him as lost. /localized itself never paused 1.5 s in the recording. Changed:
+  LOC_STALE_S 3.0, and the panel's messages now also go to /tmp/hmi.log. The big map's global
+  costmap and planner load is the next thing to look at.

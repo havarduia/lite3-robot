@@ -37,7 +37,9 @@ FIX_S = 1.0             # a fix this often; FAST-LIO2 carries the pose in betwee
 SMOOTH = 0.3            # a tracked fix moves the sent correction this far towards it: no 5 cm shake a second
 SCAN_VOXEL_M = 0.1      # scans thinned to this on arrival: a 3 s stack stays small
 MIN_SCANS = 10          # no fix from less than 1 s of scans
-RESTART_GAP_S = 1.0     # /Odometry quiet this long: FAST-LIO2 restarted, a new frame
+RESTART_S = 1.0         # the live run's age fell by more than this: FAST-LIO2 restarted, a new frame.
+                        # Not a gap in /Odometry: a long search holds the callbacks up and its queue
+                        # overflows (2026-10-15: a 10 s false restart after "I am here")
 LIDAR_ABOVE_FLOOR = 0.46   # m: a guess's height is the map's floor under it plus this
 FLOOR_NEAR_M = 1.5
 TILT_MAX_DEG = 1.5      # its frame off level more than this (the Orin's live state says): no fixes
@@ -84,7 +86,7 @@ class Locator:
         self.load, self.map, self.track = load, None, None
         self.A = None                   # levels FAST-LIO2's frame (its own gravity estimate)
         self.lidar = None               # (stamp, x, y, z, yaw): the lidar in the levelled frame, newest
-        self.last_odom = None
+        self.run_t = None               # the live run's age, as last seen
         self.sent_corr = None           # the correction as sent, smoothed
         self.tilt = 0.0
         self.diverged = False
@@ -107,9 +109,6 @@ class Locator:
             self.A = align_to(-np.asarray(g, float), (0.0, 0.0, 1.0))
 
     def on_odom(self, stamp, pos, quat):
-        if self.last_odom is not None and stamp - self.last_odom > RESTART_GAP_S:
-            self._restarted()
-        self.last_odom = stamp
         if self.A is None:
             return
         p, R = self.A @ np.asarray(pos, float), self.A @ quat_R(*quat)
@@ -120,9 +119,14 @@ class Locator:
         if self.A is not None and self.track is not None:
             self.track.add(cloudreg.voxel(np.asarray(pts, float) @ self.A.T, SCAN_VOXEL_M))
 
-    def live_state(self, tilt, diverged):
-        """From the Orin's live-run state (lidar_web's /api/live/state)."""
+    def live_state(self, tilt, diverged, run_t=None):
+        """From the Orin's live-run state (lidar_web's /api/live/state): tilt, diverged
+        or not running, and the run's age, whose fall is a new run."""
         self.tilt, self.diverged = tilt, diverged
+        if run_t is not None:
+            if self.run_t is not None and run_t < self.run_t - RESTART_S:
+                self._restarted()
+            self.run_t = run_t
 
     # --- the work ---------------------------------------------------------------
     def _restarted(self):
@@ -163,7 +167,9 @@ class Locator:
             return pack_fix(now, stamp, (0, 0, 0, 0), 0, 0, 0, cloudreg.AXES, (0, 0, 0), NO_MAP)
         if self.lidar is None or self.diverged or self.track is None:
             return pack_fix(now, stamp, (0, 0, 0, 0), 0, 0, 0, cloudreg.AXES, (0, 0, 0), NO_LIO)
-        if self.tilt > TILT_MAX_DEG:
+        # a run started tilted stays tilted; checked before he is placed only, since once he walks
+        # the reading follows his own accelerations (23 of 208 fixes lost to it, 2026-10-15)
+        if self.tilt > TILT_MAX_DEG and not self.track.placed:
             return pack_fix(now, stamp, (0, 0, 0, 0), 0, 0, 0, cloudreg.AXES, (0, 0, 0), TILTED)
         if len(self.track.scans) < MIN_SCANS:
             return pack_fix(now, stamp, (0, 0, 0, 0), 0, 0, 0, cloudreg.AXES, (0, 0, 0), SEARCHING)
@@ -251,12 +257,16 @@ def main():
     def tick():
         try:
             s = json.loads(urllib.request.urlopen('http://localhost:8000/api/live/state', timeout=0.5).read())
-            live = (s.get('tilt') or 0.0, bool(s.get('diverged')) or not s.get('running'))
+            live = (s.get('tilt') or 0.0, bool(s.get('diverged')) or not s.get('running'), s.get('t'))
         except Exception:
-            live = (0.0, False)
+            live = (0.0, False, None)
         with lock:
             loc.live_state(*live)
-            data = loc.fix(time.time())
+            t = time.time()
+            data = loc.fix(t)
+        took = time.time() - t
+        if took > 2.0:                                  # a search: worth a line
+            print('cloud_locate: a fix took %.1f s (%s)' % (took, STATES[unpack_fix(data)['state']]), flush=True)
         out.sendto(data, ROBOT)
     node.create_timer(FIX_S, tick)
     rclpy.spin(node)
@@ -296,12 +306,19 @@ def check():
     # tracked fixes are smoothed: 30% of the way, the heading the short way round
     sm = smooth((0.0, 0.0, 0.0, math.radians(179)), (0.1, 0.0, 0.0, math.radians(-179)))
     assert abs(sm[0] - 0.03) < 1e-12 and abs(math.degrees(sm[3]) - 179.6) < 1e-9, sm
-    # tilted: no fixes
-    loc.live_state(2.0, False)
-    assert unpack_fix(loc.fix(12.0))['state'] == TILTED
-    loc.live_state(0.3, False)
-    # FAST-LIO2 restarts (odometry quiet 2 s): a new frame, started again from where he was
+    # a tilt reading over the limit once placed is his walking (the reading follows the accelerometer:
+    # 23 of 208 fixes lost to it on 2026-10-15): fixes go on. Before he is placed it still stops them.
+    loc.live_state(2.0, False, 50.0)
+    assert unpack_fix(loc.fix(12.0))['state'] == OK
+    placed, loc.track.placed = loc.track.placed, False
+    assert unpack_fix(loc.fix(12.5))['state'] == TILTED
+    loc.track.placed = placed
+    loc.live_state(0.3, False, 51.0)
+    # a long search held the odometry up (2026-10-15: 10 s, its queue overflowed): a gap is NOT a restart
     loc.on_odom(14.0, (0, 0, 0), (0, 0, 0, 1))
+    assert loc.track is not None and loc.A is not None
+    # FAST-LIO2 restarts: its run's age (the Orin's live state) goes down. A new frame, from where he was
+    loc.live_state(0.3, False, 2.0)
     assert loc.track is None and loc.A is None and loc.pending_place is not None
     p = loc.pending_place
     assert abs(p[0] - truth_base[0]) < 0.03 and abs(p[1] - truth_base[1]) < 0.03, p
