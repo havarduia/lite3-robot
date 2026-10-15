@@ -3,7 +3,7 @@
 **Spec**: none. Planned from the 2026-10-15 conversation (four speed test walks, below)
 **Epic**: none
 **Created**: 2026-10-15
-**Status**: in progress (2026-10-15: phase 1, tasks 1-3, done; phase 2 next, needs him lying down)
+**Status**: in progress (2026-10-15: phase 1 done; tasks 4-5 done on the robot, backups `*.pre-rpp`; task 6 waits for the reload)
 
 Stack: Nav2 Foxy 0.4.7 on the perception computer, configured through the
 vendor's `lite_nav2_mapless.yaml` (two copies on the robot: `src` and

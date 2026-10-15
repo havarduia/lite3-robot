@@ -136,7 +136,7 @@
          inflate_unknown: False
          inflate_around_unknown: False
  
-@@ -203,16 +261,19 @@
+@@ -203,16 +261,50 @@
        movement_time_allowance: 10.0
      goal_checker:
        plugin: "nav2_controller::SimpleGoalChecker"
@@ -149,7 +149,38 @@
 +      yaw_goal_tolerance: 3.14
        stateful: True
  
++    # Regulated Pure Pursuit (2026-10-15, .planning/plans/rpp-controller.md): up to the slow
++    # gait's 0.5 m/s, slower in curves, near walls and into the goal. DWB held ~0.3 m/s
++    # everywhere and failed the lab door when made faster (LIDAR_ORIN_LOG.md section 30).
      FollowPath:
++      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
++      desired_linear_vel: 0.5
++      max_linear_accel: 0.5
++      max_linear_decel: 0.8
++      lookahead_dist: 0.6
++      min_lookahead_dist: 0.3
++      max_lookahead_dist: 0.9
++      lookahead_time: 1.5
++      use_velocity_scaled_lookahead_dist: true
++      use_rotate_to_heading: true
++      rotate_to_heading_min_angle: 0.785
++      rotate_to_heading_angular_vel: 0.4
++      max_angular_accel: 0.8
++      use_regulated_linear_velocity_scaling: true
++      regulated_linear_scaling_min_radius: 0.9
++      regulated_linear_scaling_min_speed: 0.15
++      use_cost_regulated_linear_velocity_scaling: true
++      cost_scaling_dist: 0.6
++      cost_scaling_gain: 1.0
++      inflation_cost_scaling_factor: 8.0   # must equal the local inflation_layer's cost_scaling_factor
++      use_approach_linear_velocity_scaling: true
++      min_approach_linear_velocity: 0.05
++      max_allowed_time_to_collision: 1.0
++      goal_dist_tol: 0.15
++      transform_tolerance: 0.2
++
++    # DWB, kept to go back to: rename it FollowPath (and the block above something else).
++    FollowPathDWB:
        plugin: "dwb_core::DWBLocalPlanner"
        min_vel_x: -0.02
 -      min_vel_y: -0.02
@@ -160,7 +191,7 @@
        max_vel_theta: 0.8
        min_speed_xy: 0.01
        max_speed_xy: 1.0
-@@ -225,7 +286,7 @@
+@@ -225,7 +317,7 @@
        decel_lim_theta: -0.8
  
        vx_samples: 20
@@ -169,7 +200,7 @@
        vtheta_samples: 40
  
        sim_time: 3.0
-@@ -233,10 +294,10 @@
+@@ -233,10 +325,10 @@
        linear_granularity: 0.1
        angular_granularity: 0.1
  
@@ -182,7 +213,7 @@
        PreferForward.strafe_theta: 0.3
        PreferForward.theta_scale: 1.0
  
-@@ -255,7 +316,7 @@
+@@ -255,7 +347,7 @@
        PathDist.aggregation_type: "sum"
  
        RotateToGoal.scale: 32.0
