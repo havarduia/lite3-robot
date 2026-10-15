@@ -48,6 +48,16 @@ CLOCK_DRIFT = 2e-4      # s per pose the two computers' clocks may drift apart
 # low (0.15 m under to 1.0 m over base_link): what he could walk into. W is cut
 # above the furniture (0.9 to 1.7 m over): the walls a floor map shows.
 SCANS = {b'S': '/scan', b'W': '/scan_walls'}
+# The 3D localizer on the Orin (robot/cloud_locate.py): its fixes come here as 'L' (base_link's pose on
+# the map at a FAST-LIO2 stamp, how well it fits, a state); "I am here" and the floor's cloud go to it.
+FIX = struct.Struct('<cdd4d3dB3dB')     # L, sent (Orin clock), stamp, x y z yaw, fitness, walls, rmse, weak bits, var x y yaw, state
+PLACE = struct.Struct('<c3d')           # I, base_link x, y, yaw on the map
+CLOUD_PORT = 8043                       # where cloud_locate.py listens on the Orin, for 'I' and 'M' (the cloud's path)
+FIX_AXES = ('x', 'y', 'z', 'yaw')
+CLOUD_FIX_TOPIC = '/cloud_fix'       # the fixes as map -> odom, for robot/locate.py (CloudFix.take's row)
+MAP_TF_EVERY = 5                    # map -> odom with every 5th leg message: 10 Hz
+FIX_OK, FIX_NO_MAP, FIX_NO_LIO, FIX_TILTED, FIX_SEARCHING, FIX_REFUSED = range(6)
+FIX_STATES = ('ok', 'no map', 'no FAST-LIO2', 'tilted', 'searching', 'refused')
 SCAN_DELAY_S = 0.1      # a scan gathers 0.1 s of points before it is sent; not measured
 GAP_S = 1.0             # longer than this between poses: a new run, or it stalled. A few go missing on the way
 STEP_TOL = (0.15, 0.2)  # m, rad: a step differing more than this from the legs' is not believed
@@ -149,6 +159,40 @@ class Fuse:
         return x, y, wrap(yaw)
 
 
+class CloudFix:
+    """The Orin's 3D fixes (robot/cloud_locate.py) as map -> odom. take() each one with
+    /odom_fused's pose at its moment; map_odom is the newest accepted, None while
+    the Orin has no map (Nav2 on AMCL, which owns map -> odom then)."""
+
+    def __init__(self):
+        self.map_odom = None
+
+    def take(self, fix, odom_then):
+        """The row for /cloud_fix: state, map -> odom (x y yaw), walls, rmse, weak bits,
+        spread (m, rad), fitness."""
+        state = fix['state']
+        if state == FIX_NO_MAP:
+            self.map_odom = None
+        elif state == FIX_OK and odom_then is not None:
+            x, y, _, yaw = fix['pose']
+            self.map_odom = join((x, y, yaw), inv(odom_then))
+        bits = sum(1 << i for i, a in enumerate(FIX_AXES) if a in fix['weak'])
+        vx, vy, vyaw = fix['var']
+        return ([float(state)] + list(self.map_odom or (math.nan,) * 3)
+                + [fix['walls'], fix['rmse'], float(bits), math.sqrt(max(vx, vy, 0.0)), math.sqrt(max(vyaw, 0.0)),
+                   fix['fitness']])
+
+
+def place(x, y, yaw):
+    """Tell the Orin's localizer where base_link is on the map ("I am here")."""
+    socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(PLACE.pack(b'I', x, y, yaw), (ORIN, CLOUD_PORT))
+
+
+def cloud(path):
+    """Tell the Orin's localizer which cloud to load (a .ply or a run folder on the Orin); '' unloads."""
+    socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b'M' + path.encode(), (ORIN, CLOUD_PORT))
+
+
 def live(what, **options):
     """The Orin's FAST-LIO2 run: live('start'), live('stop', name='hall'),
     live('state'). Returns the panel's answer; start it with the robot
@@ -193,10 +237,23 @@ def scan_fields(data):
     return SCAN.unpack_from(data)[1:] + (array.array('f', data[SCAN.size:]),)
 
 
+def pack_fix(sent, stamp, pose, fitness, walls, rmse, weak, var, state):
+    bits = sum(1 << i for i, a in enumerate(FIX_AXES) if a in weak)
+    return FIX.pack(b'L', sent, stamp, *pose, fitness, walls, min(rmse, 1e3), bits, *var, state)
+
+
+def unpack_fix(data):
+    v = FIX.unpack(data)
+    return {'sent': v[1], 'stamp': v[2], 'pose': v[3:7], 'fitness': v[7], 'walls': v[8], 'rmse': v[9],
+            'weak': [a for i, a in enumerate(FIX_AXES) if v[10] >> i & 1], 'var': v[11:14], 'state': v[14]}
+
+
 def well_formed(data):
-    """Is this datagram a pose or a scan, whole?"""
+    """Is this datagram a pose, a scan or a 3D fix, whole?"""
     if data[:1] == b'P':
         return len(data) == POSE.size
+    if data[:1] == b'L':
+        return len(data) == FIX.size
     return data[:1] in SCANS and len(data) > SCAN.size and (len(data) - SCAN.size) % 4 == 0
 
 
@@ -227,12 +284,12 @@ def send():
 
 def main():
     import rclpy
-    from geometry_msgs.msg import TransformStamped
+    from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
     from nav_msgs.msg import Odometry
     from rclpy.clock import Clock, ClockType
     from rclpy.duration import Duration
     from sensor_msgs.msg import LaserScan
-    from std_msgs.msg import Int32MultiArray
+    from std_msgs.msg import Float64MultiArray, Int32MultiArray
     from tf2_ros import TransformBroadcaster
 
     rclpy.init()
@@ -244,6 +301,11 @@ def main():
     tf_pub = TransformBroadcaster(node)
     tf = TransformStamped()
     tf.header.frame_id, tf.child_frame_id = 'odom', 'base_link'
+    # map -> odom from the Orin's 3D fixes, while it has a map (Nav2 with LOCALIZER=cloud)
+    fix_pub = node.create_publisher(Float64MultiArray, CLOUD_FIX_TOPIC, 5)
+    map_tf = TransformStamped()
+    map_tf.header.frame_id, map_tf.child_frame_id = 'map', 'odom'
+    cloud_fix = CloudFix()
     steady = Clock(clock_type=ClockType.STEADY_TIME)    # what /leg_odom2 is stamped with
     box = {}                # 'lio': the newest (arrival, sent, stamp, position, quaternion)
 
@@ -274,6 +336,8 @@ def main():
                 continue
             if data[:1] in SCANS:
                 send_scan(data)
+            elif data[:1] == b'L':
+                box['fix'] = unpack_fix(data)
             else:
                 v = POSE.unpack(data)[1:]
                 box['lio'] = (time.monotonic(), v[0], v[1]) + to_base(v[2:5], v[5:])
@@ -283,7 +347,8 @@ def main():
     state = {'seen': None, 'prev': None, 'using': False, 'basic': None, 'asked': -START_RETRY_S,
              'ahead': None,     # this clock minus the Orin's, from the quickest datagram so far
              'behind': 0.0,     # how old the newest pose was when the Orin sent it
-             'heard': None}     # when the last usable pose arrived
+             'heard': None,     # when the last usable pose arrived
+             'ticks': 0}
 
     def take_lio(s):
         arrived, sent, t, p, q = s
@@ -337,6 +402,18 @@ def main():
         tf.transform.translation.x, tf.transform.translation.y, tf.transform.translation.z = pos.x, pos.y, pos.z
         tf.transform.rotation = ori
         tf_pub.sendTransform(tf)
+        f = box.pop('fix', None)
+        if f is not None:
+            # base_link on the map at the fix's moment, against /odom_fused at that moment
+            then = leg_at(legs, f['stamp'] + state['ahead']) if state['ahead'] is not None else None
+            fix_pub.publish(Float64MultiArray(data=cloud_fix.take(f, fuse.pose(then) if then else None)))
+        state['ticks'] += 1
+        if cloud_fix.map_odom is not None and state['ticks'] % MAP_TF_EVERY == 0:
+            x, y, yaw = cloud_fix.map_odom
+            map_tf.header.stamp = m.header.stamp
+            map_tf.transform.translation.x, map_tf.transform.translation.y = x, y
+            map_tf.transform.rotation.z, map_tf.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+            tf_pub.sendTransform(map_tf)
 
     def start():
         try:
@@ -354,6 +431,10 @@ def main():
             threading.Thread(target=start, daemon=True).start()     # not in the 50 Hz path
 
     node.create_subscription(Odometry, LEG_TOPIC, leg, 1)
+    # "I am here" goes to AMCL as ever, and to the Orin's localizer (ignored there without a map)
+    node.create_subscription(PoseWithCovarianceStamped, '/initialpose', lambda m: place(
+        m.pose.pose.position.x, m.pose.pose.position.y, yaw_of((m.pose.pose.orientation.x, m.pose.pose.orientation.y,
+                                                                 m.pose.pose.orientation.z, m.pose.pose.orientation.w))), 5)
     node.create_subscription(Int32MultiArray, '/robot_state_debug',
                              lambda m: state.__setitem__('basic', m.data[0]), 1)
     node.create_timer(CHECK_S, check)
@@ -431,12 +512,29 @@ def demo():
     assert not should_start(STANDING, moving, None)     # walking
     assert not should_start(1, still, None)             # lying down
     assert not should_start(STANDING, collections.deque(list(still)[:10], maxlen=LEGS_KEPT), None)
+    # 3D fixes: whole ones only, and turned into map -> odom against the odometry of their moment
+    d = pack_fix(5.0, 4.9, (5.0, 5.0, 0.4, math.pi / 2), 0.95, 0.9, 0.05, ['x'], (0.01, 0.0004, 0.0001), FIX_OK)
+    assert well_formed(d) and not well_formed(d[:-1]) and unpack_fix(d)['weak'] == ['x']
+    c = CloudFix()
+    row = c.take(unpack_fix(d), (1.0, 0.0, 0.0))          # odometry read (1, 0, 0) then
+    x, y, yaw = join(c.map_odom, (3.0, 0.0, 0.0))         # 2 m on by odometry: 2 m on, on the map
+    assert near((x, y, yaw), (5.0, 7.0, math.pi / 2)), (x, y, yaw)
+    assert row[0] == FIX_OK and row[4] == 0.9 and row[6] == 1.0 and abs(row[7] - 0.1) < 1e-12 and abs(row[8] - 0.01) < 1e-12, row
+    held = c.map_odom
+    c.take(unpack_fix(pack_fix(6, 6, (9, 9, 0, 0), 0.4, 0.2, 0.1, [], (0, 0, 0), FIX_REFUSED)), (1.0, 0.0, 0.0))
+    assert c.map_odom == held                              # refused: the last one stands
+    c.take(unpack_fix(pack_fix(7, 7, (9, 9, 0, 0), 0.9, 0.9, 0.05, [], (0, 0, 0), FIX_OK)), None)
+    assert c.map_odom == held                              # its moment not in the odometry kept: not used
+    row = c.take(unpack_fix(pack_fix(8, 8, (0, 0, 0, 0), 0, 0, 0, FIX_AXES, (0, 0, 0), FIX_NO_MAP)), (1.0, 0.0, 0.0))
+    assert c.map_odom is None and math.isnan(row[1])      # unloaded: no map -> odom from here (AMCL's job)
     print('lio_relay ok')
 
 
 if __name__ == '__main__':
     word = ''.join(sys.argv[1:])
-    if word in ('start', 'stop', 'state'):
+    if sys.argv[1:2] == ['map']:
+        cloud(sys.argv[2] if len(sys.argv) > 2 else '')
+    elif word in ('start', 'stop', 'state'):
         print(json.dumps(live(word), indent=1))
     else:
         {'send': send, 'check': demo}.get(word, main)()

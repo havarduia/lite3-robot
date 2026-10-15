@@ -1,6 +1,7 @@
 """locate - does the robot know where it is on the floor map?
 
     python3 -m robot.locate <floor>     the node (env/start_nav2_map.sh starts it with Nav2)
+    python3 -m robot.locate <floor> cloud   the same from the Orin's 3D fixes (LOCALIZER=cloud)
     python3 -m robot.locate check       self-check, no ROS
 
 Publishes /localized twice a second: [state, x, y, yaw, spread_xy,
@@ -24,7 +25,8 @@ import numpy as np
 import yaml
 
 from . import places
-from .lio_relay import inv, join, wrap
+from .lio_relay import CLOUD_FIX_TOPIC, FIX_NO_MAP as CLOUD_NO_MAP, FIX_OK as CLOUD_OK, \
+    FIX_REFUSED as CLOUD_REFUSED, inv, join, wrap
 from .protocol import Lite3Error
 
 TOPIC = '/localized'
@@ -53,6 +55,10 @@ SPREAD_XY_M = 0.5
 SPREAD_YAW = 0.35       # rad
 SCAN_OLD_S = 1.0
 FOUND_S = 1.0           # it must look right this long before it is called localized
+# LOCALIZER=cloud (robot/cloud_locate.py on the Orin, .planning/plans/cloud-localization.md)
+CLOUD_OLD_S = 5.0       # no accepted 3D fix for this long: not placed (one refused fix is not lost)
+CLOUD_WALLS_MIN = 0.5   # as cloudreg.ACCEPT: the walls must fit this well
+WEAK_M = 15.0           # walked this far since a fix that pinned every direction (a plain corridor): too wide
 LOST_S = 2.0            # and wrong this long before it is called lost: a person walking past is not that
 
 
@@ -159,6 +165,42 @@ def judge(have_pose, scan_age, spread_xy, spread_yaw, fit):
     return LOCALIZED if fit >= FIT_MIN else NO_FIT
 
 
+class CloudJudge:
+    """LOCALIZER=cloud: localized or not, from /cloud_fix rows (lio_relay.CloudFix.take).
+    take() each row with the odometry (x, y) of the moment; judge() any time."""
+
+    def __init__(self):
+        self.fix = None         # map -> odom, the newest accepted
+        self.ok_at = None
+        self.walls, self.spread, self.weak = math.nan, (math.nan, math.nan), False
+        self.pinned_at = None   # odometry (x, y) at the last fix with no weak direction
+
+    def take(self, now, row, odom_xy):
+        state = int(row[0])
+        if state == CLOUD_NO_MAP:
+            self.__init__()
+            return
+        if not math.isnan(row[1]):
+            self.fix = (row[1], row[2], row[3])
+        if state == CLOUD_OK:
+            self.ok_at, self.walls, self.spread, self.weak = now, row[4], (row[7], row[8]), int(row[6]) != 0
+            if not self.weak or self.pinned_at is None:
+                self.pinned_at = odom_xy
+
+    def judge(self, now, odom_xy):
+        if self.fix is None:
+            return NO_POSE
+        if self.ok_at is None or now - self.ok_at > CLOUD_OLD_S:
+            return NO_SCAN
+        if self.pinned_at is not None and math.hypot(odom_xy[0] - self.pinned_at[0],
+                                                     odom_xy[1] - self.pinned_at[1]) > WEAK_M:
+            return SPREAD
+        # with a weak direction its variance is huge by design: the distance rule above covers it
+        if not self.weak and (self.spread[0] > SPREAD_XY_M or self.spread[1] > SPREAD_YAW):
+            return SPREAD
+        return LOCALIZED if self.walls >= CLOUD_WALLS_MIN else NO_FIT
+
+
 class Steady:
     """Localized or not, changing only once the new answer has held:
     FOUND_S to become yes, LOST_S to become no."""
@@ -249,6 +291,54 @@ def main(floor):
         pass
 
 
+def main_cloud():
+    """LOCALIZER=cloud: the same /localized, judged from the Orin's 3D fixes on /cloud_fix
+    (lio_relay.py makes them map -> odom; AMCL is not running)."""
+    import rclpy
+    from nav_msgs.msg import Odometry
+    from rclpy.executors import SingleThreadedExecutor
+    from std_msgs.msg import Float64MultiArray
+
+    from .lite3 import ODOM_TOPIC, take_ready
+    from .lio_relay import yaw_of
+
+    rclpy.init()
+    node = rclpy.create_node('locate')
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    pub = node.create_publisher(Float64MultiArray, TOPIC, 1)
+    new = {}
+    node.create_subscription(Odometry, ODOM_TOPIC, lambda m: new.__setitem__('odom', m), 1)
+    node.create_subscription(Float64MultiArray, CLOUD_FIX_TOPIC, lambda m: new.__setitem__('fix', list(m.data)), 5)
+    judge3d, steady, odom, tick = CloudJudge(), Steady(), None, 0
+    try:
+        while rclpy.ok():
+            take_ready(executor)
+            m = new.pop('odom', None)
+            if m is not None:
+                q = m.pose.pose.orientation
+                odom = (m.pose.pose.position.x, m.pose.pose.position.y, yaw_of((q.x, q.y, q.z, q.w)))
+            now = time.monotonic()
+            row = new.pop('fix', None)
+            if row is not None and odom is not None:
+                judge3d.take(now, row, odom[:2])
+            tick += 1
+            if tick % int(READ_HZ / PUBLISH_HZ) == 0:
+                pose = (math.nan,) * 3
+                looks = NO_POSE
+                if odom is not None:
+                    looks = judge3d.judge(now, odom[:2])
+                    if judge3d.fix is not None:
+                        x, y, yaw = join(judge3d.fix, odom)
+                        pose = (x, y, wrap(yaw))
+                state = LOCALIZED if steady.update(now, looks == LOCALIZED) else \
+                    (SETTLING if looks == LOCALIZED else looks)
+                pub.publish(Float64MultiArray(data=[float(state)] + list(pose) + list(judge3d.spread) + [judge3d.walls]))
+            time.sleep(1.0 / READ_HZ)
+    except KeyboardInterrupt:
+        pass
+
+
 def demo():
     import tempfile
 
@@ -327,12 +417,38 @@ def demo():
     assert s.update(7.0, True) and s.update(8.0, False) and s.update(9.9, False)   # and the count starts again
     assert not s.update(10.0, False)                                    # wrong for LOST_S: lost
     assert not s.update(10.5, True) and not s.update(10.6, False) and not s.update(11.4, True)
+    # LOCALIZER=cloud: judged from the Orin's 3D fixes (/cloud_fix rows from lio_relay.CloudFix)
+    def row(state, mo=(5.0, 5.0, 0.0), walls=0.95, weak=0, sxy=0.05, syaw=0.01):
+        return [float(state)] + list(mo) + [walls, 0.05, float(weak), sxy, syaw, 0.9]
+    c = CloudJudge()
+    assert c.judge(0.0, (0.0, 0.0)) == NO_POSE
+    c.take(0.0, row(CLOUD_OK), (0.0, 0.0))
+    assert c.judge(0.5, (0.0, 0.0)) == LOCALIZED and c.fix == (5.0, 5.0, 0.0)
+    c.take(1.0, row(CLOUD_REFUSED, walls=0.2), (0.1, 0.0))        # one refused fix: still placed
+    assert c.judge(1.5, (0.1, 0.0)) == LOCALIZED
+    assert c.judge(0.0 + CLOUD_OLD_S + 0.1, (0.1, 0.0)) == NO_SCAN    # no accepted fix for CLOUD_OLD_S
+    c.take(7.0, row(CLOUD_OK, walls=0.3), (0.2, 0.0))
+    assert c.judge(7.1, (0.2, 0.0)) == NO_FIT                       # the walls do not fit
+    c.take(8.0, row(CLOUD_OK, sxy=0.8), (0.2, 0.0))
+    assert c.judge(8.1, (0.2, 0.0)) == SPREAD                       # too wide where nothing is weak
+    # a plain corridor: along it is weak (huge variance there), fine until he has gone WEAK_M on it
+    c.take(9.0, row(CLOUD_OK), (0.0, 0.0))
+    c.take(10.0, row(CLOUD_OK, weak=1, sxy=1e3), (5.0, 0.0))
+    assert c.judge(10.1, (5.0, 0.0)) == LOCALIZED
+    c.take(11.0, row(CLOUD_OK, weak=1, sxy=1e3), (WEAK_M + 1.0, 0.0))
+    assert c.judge(11.1, (WEAK_M + 1.0, 0.0)) == SPREAD
+    c.take(12.0, row(CLOUD_OK), (WEAK_M + 2.0, 0.0))                # pinned again: fine
+    assert c.judge(12.1, (WEAK_M + 2.0, 0.0)) == LOCALIZED
+    c.take(13.0, row(CLOUD_NO_MAP, mo=(math.nan,) * 3), (WEAK_M + 2.0, 0.0))
+    assert c.fix is None and c.judge(13.1, (0.0, 0.0)) == NO_POSE   # the Orin has no map
     print('locate ok')
 
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['check']:
         demo()
+    elif len(sys.argv) == 3 and sys.argv[2] == 'cloud':
+        main_cloud()                    # the floor is the Orin's to know (cloud.txt); kept for the process name
     elif len(sys.argv) == 2:
         main(sys.argv[1])
     else:

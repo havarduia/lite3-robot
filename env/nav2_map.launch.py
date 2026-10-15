@@ -1,6 +1,9 @@
 """Nav2 on a floor map: the mapless stack, plus a map server and AMCL.
 
-    ros2 launch env/nav2_map.launch.py params:=/tmp/nav2_map.yaml
+    ros2 launch env/nav2_map.launch.py params:=/tmp/nav2_map.yaml [localizer:=cloud]
+
+localizer:=cloud leaves AMCL out: lio_relay.py publishes map -> odom from the
+Orin's 3D fixes instead (robot/cloud_locate.py).
 
 Started by env/start_nav2_map.sh, which makes that parameter file first
 (env/nav2_map_params.py). The vendor's own map launch (dr_nav2) is not used:
@@ -11,8 +14,9 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 TF = [('/tf', 'tf'), ('/tf_static', 'tf_static')]      # as nav2_bringup's own launch files do
@@ -20,9 +24,11 @@ TF = [('/tf', 'tf'), ('/tf_static', 'tf_static')]      # as nav2_bringup's own l
 
 def generate_launch_description():
     params = LaunchConfiguration('params')
+    amcl = PythonExpression(["'", LaunchConfiguration('localizer'), "' == 'amcl'"])
     mapless = os.path.join(get_package_share_directory('dr_nav2_mapless'), 'launch', 'dr_nav2_mapless.launch.py')
     return LaunchDescription([
         DeclareLaunchArgument('params'),
+        DeclareLaunchArgument('localizer', default_value='amcl'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(mapless),
             launch_arguments=[
@@ -34,9 +40,12 @@ def generate_launch_description():
                 ('map_subscribe_transient_local', 'true')]),
         Node(package='nav2_map_server', executable='map_server', name='map_server',
              output='screen', parameters=[params], remappings=TF),
-        Node(package='nav2_amcl', executable='amcl', name='amcl',
+        Node(package='nav2_amcl', executable='amcl', name='amcl', condition=IfCondition(amcl),
              output='screen', parameters=[params], remappings=TF),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', condition=IfCondition(amcl),
              name='lifecycle_manager_localization', output='screen',
              parameters=[{'use_sim_time': False, 'autostart': True, 'node_names': ['map_server', 'amcl']}]),
+        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', condition=UnlessCondition(amcl),
+             name='lifecycle_manager_localization', output='screen',
+             parameters=[{'use_sim_time': False, 'autostart': True, 'node_names': ['map_server']}]),
     ])

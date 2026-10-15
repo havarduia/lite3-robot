@@ -427,7 +427,8 @@ class Nav:
         """The floor Nav2 is running on, or None: mapless, or Nav2 down. Read off
         the running stack, so every Lite3 gives the same answer."""
         out = subprocess.run(['pgrep', '-af', r'robot\.locate '], capture_output=True, text=True).stdout
-        return out.split('\n')[0].split()[-1] if out.strip() else None
+        words = out.split('\n')[0].split()       # ... robot.locate <floor> [cloud]
+        return words[words.index('robot.locate') + 1] if 'robot.locate' in words[:-1] else None
 
     def _floor(self):
         floor = self.floor

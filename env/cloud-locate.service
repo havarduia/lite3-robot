@@ -1,0 +1,23 @@
+# Runs on the ORIN (192.168.1.5), next to lio-send. Install there:
+#   copy robot/cloud_locate.py, robot/cloudreg.py and robot/lio_relay.py to /home/lite3/bin/, then
+#   sudo cp cloud-locate.service /etc/systemd/system/ && sudo systemctl enable --now cloud-locate
+[Unit]
+# Where he is on a floor's 3D map, from FAST-LIO2's scans, as 'L' datagrams to the
+# relay on the perception computer (robot/cloud_locate.py, .planning/plans/cloud-localization.md).
+Description=3D map localization for the Lite3 (cloud_locate.py)
+After=lio-send.service network-online.target
+
+[Service]
+Type=simple
+User=lite3
+Group=lite3
+WorkingDirectory=/home/lite3/bin
+Environment=HOME=/home/lite3
+Environment=ROS_DOMAIN_ID=42
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash; exec python3 /home/lite3/bin/cloud_locate.py'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

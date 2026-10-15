@@ -24,6 +24,8 @@
 /lookahead_collision_arc
 /local_costmap/costmap
 /sonar/front
+# the 3D localizer's fixes as map -> odom, with their fit (LOCALIZER=cloud; lio_relay.CloudFix)
+/cloud_fix
 /navigate_to_pose/_action/status
 /global_costmap/costmap
 

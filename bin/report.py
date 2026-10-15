@@ -71,6 +71,8 @@ def series(bag):
     run['localized'] = np.array([[t] + list(m.data) for t, m in bag.get('/localized', [])
                                  if len(m.data) == 7]).reshape(-1, 8)
     run['cmd_vel'] = np.array([(t, m.linear.x, m.angular.z) for t, m in bag.get('/cmd_vel', [])]).reshape(-1, 3)
+    # the 3D localizer (LOCALIZER=cloud): t, state, map->odom x y yaw, walls, rmse, weak bits, spread m rad, fitness
+    run['cloud_fix'] = np.array([[t] + list(m.data) for t, m in bag.get('/cloud_fix', []) if len(m.data) == 10]).reshape(-1, 11)
     run['plans'] = [(t, path_length([(p.pose.position.x, p.pose.position.y) for p in m.poses]))
                     for t, m in bag.get('/plan', [])]
     run['battery'] = [(t, m.data[7]) for t, m in bag.get('/robot_state_debug', []) if len(m.data) > 7]
@@ -276,6 +278,15 @@ def summarize(run):
                     np.nanmax(spread), SPREAD_XY_M, 100 * np.mean(spread > SPREAD_XY_M),
                     np.nanmin(loc[:, 7]), np.nanmax(loc[:, 7]), 100 * np.mean(loc[:, 1] == 1))]
 
+    cf = run.get('cloud_fix', np.zeros((0, 11)))
+    if len(cf):
+        ok = cf[:, 1] == 0                                  # lio_relay.FIX_OK
+        walls = cf[ok, 5]
+        num.update(cloud_accepted=float(ok.mean()), cloud_walls_median=float(np.median(walls)) if ok.any() else 0.0)
+        out += ['', '3D localizer: %d fixes, accepted %.0f%%, walls median %.2f (min %.2f), weak in %.0f%% of the accepted' % (
+            len(cf), 100 * ok.mean(), np.median(walls) if ok.any() else 0, walls.min() if ok.any() else 0,
+            100 * np.mean(cf[ok, 7] > 0) if ok.any() else 0)]
+
     relay = run['relay']
     lags = [float(m.group(1)) for _, s in relay for m in [re.search(r'is ([\d.]+) s behind', s)] if m]
     drops = sum('leg odometry alone' in s for _, s in relay)
@@ -422,6 +433,8 @@ def made_up_run():
         'meta': {'name': 'made-up', 'via': 'none', 'start': t0, 'stop': t0 + 45},
         '/odom_fused': track(0), '/leg_odom2': track(0), '/lio_odom': track(0.01 * t),
         'localized': loc,
+        'cloud_fix': np.array([[t0 + i, 0.0 if i < 8 else 5.0, 0, 0, 0, 0.9 if i < 8 else 0.3, 0.05, 1.0 if i < 2 else 0.0,
+                               0.05, 0.01, 0.9] for i in range(10)]),
         'cmd_vel': np.column_stack([t0 + t, np.where(t < 10, 0.5, 0.2), np.where((t >= 20) & (t < 30), -0.3, 0.0)]),
         'plans': [(t0 + 1, 7.5)], 'battery': [(t0, 80), (t0 + 40, 78)],
         'goals': goals([(t0 + 0.5, [(b'g1', 2)]), (t0 + 40.0, [(b'g1', 4)])]),
@@ -458,6 +471,7 @@ def check():
     # the track drawn from its own first pose: start at 0,0 whatever the odometry origin
     assert np.allclose(relative(run['/odom_fused'])[0, 1:], 0)
     assert 'recoveries 1' in text, text
+    assert 'accepted 80%' in text and 'walls median 0.90' in text and 'weak in 25%' in text, text    # 2 of the 8 accepted
     # 100 commands at 0.5 m/s, 300 at 0.2; a 0.3 rad/s turn the other way
     assert (num['vx_p50'], num['vx_max'], num['vx_fast_share'], num['wz_max']) == (0.2, 0.5, 0.25, 0.3), num
     assert abs(num['vx_p90'] - 0.5) < 1e-9, num

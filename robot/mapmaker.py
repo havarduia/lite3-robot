@@ -36,6 +36,7 @@ WAIT_S = 30.0           # for a run to stop, or a new one to start
 PROCESS_S = 600.0       # for the Orin to clean, flatten and slice a run
 POLL_S = 1.0
 START = 'start'
+ORIN_MAPS = '/home/lite3/maps'     # where the Orin keeps its runs: a floor's cloud.txt points into it
 
 
 def check_name(name):
@@ -137,7 +138,7 @@ def save(name, root=None):
             open(p[k], 'wb').write(data)
         _module('floor_free').main(p['pgm'], p['yaml'], p['ply'], p['path'])
         _module('walked_free').main(p['pgm'], p['yaml'], p['path'])
-        install(name, p['pgm'], p['yaml'], root)
+        install(name, p['pgm'], p['yaml'], root, run=base)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return 'floor %s saved (run %s); load it, then I am here on the start mark' % (name, base)
@@ -157,7 +158,7 @@ def _finished(name, asked):
     return None
 
 
-def install(name, pgm, yaml_path, root=None):
+def install(name, pgm, yaml_path, root=None, run=None):
     """The map into ~/lite3_maps/<name>/ (the old one kept as .prev), with START where the
     recording began: base_link was MOUNT_XYZ behind the lidar, which is the map's origin."""
     root = root or places.ROOT
@@ -171,6 +172,9 @@ def install(name, pgm, yaml_path, root=None):
     if any(places._key(q['name']) == START for q in places.load(name, root)):
         places.delete(name, START, root)
     places.save(name, START, -MOUNT_XYZ[0], 0.0, 0.0, root=root)
+    if run:     # the walk this floor came from, for the Orin's 3D localizer (LOCALIZER=cloud)
+        with open(os.path.join(d, 'cloud.txt'), 'w') as f:
+            f.write('%s/%s/slam_output/latest\n' % (ORIN_MAPS, run))
 
 
 def check():
@@ -267,6 +271,7 @@ def check():
             assert 'image: map.pgm' in open(os.path.join(d, 'map.yaml')).read()
             s = places.load('hall', root)
             assert [(q['name'], q['x'], q['y']) for q in s] == [('start', -MOUNT_XYZ[0], 0.0)], s
+            assert open(os.path.join(d, 'cloud.txt')).read().strip() == ORIN_MAPS + '/' + run + '/slam_output/latest'  # for LOCALIZER=cloud
             # again under the same name: replaced, the old one kept, still one start
             orin.update(running=True, result=None)
             save('hall', root=root)
