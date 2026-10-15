@@ -412,6 +412,8 @@ function connect() {
     online(true);
     if ($('cam-realsense').querySelector('img, video')) send({ cmd: 'watch', cam: 'realsense', on: true });
     if ($('cam-model').classList.contains('on')) send({ cmd: 'watch', cam: 'model', on: true });
+    // A dropout (eduroam roaming) kills the video too, and neither WebRTC nor MJPEG comes back alone.
+    if (lostOnce) ['front', 'realsense'].forEach(n => $('cam-' + n).classList.contains('on') && showCam(n, true));
   };
   ws.onclose = () => { lostOnce = true; online(false); setTimeout(connect, 1500); };
   ws.onmessage = (e) => {
@@ -796,14 +798,18 @@ async function showRtc(box, name) {
     if (pc.connectionState !== 'connected') timer = setTimeout(fallback, 6000);
   } catch (e) { fallback(); }
 }
-document.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => {
-  const name = b.dataset.cam, box = $('cam-' + name), on = !box.classList.contains('on');
+function showCam(name, on) {
+  const box = $('cam-' + name);
   box.querySelectorAll('img, video, .off').forEach(e => e.remove());
   closeRtc(name);
-  send({ cmd: 'watch', cam: name, on });       // the RealSense stream and the model's angles only run while shown
-  if (name === 'model') showModel(box, on);
-  else if (on && window.RTCPeerConnection) showRtc(box, name);
+  if (on && window.RTCPeerConnection) showRtc(box, name);
   else if (on) showMjpeg(box, name);
+}
+document.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => {
+  const name = b.dataset.cam, box = $('cam-' + name), on = !box.classList.contains('on');
+  send({ cmd: 'watch', cam: name, on });       // the RealSense stream and the model's angles only run while shown
+  if (name === 'model') { box.querySelectorAll('.off').forEach(e => e.remove()); showModel(box, on); }
+  else showCam(name, on);
   box.classList.toggle('on', on);
   b.textContent = on ? 'Hide' : 'Show';
 }));
