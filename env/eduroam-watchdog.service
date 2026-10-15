@@ -1,0 +1,22 @@
+# Install on the MOTION computer (root):
+#   sudo cp eduroam-watchdog.service /etc/systemd/system/ && sudo systemctl enable --now eduroam-watchdog
+# After a full drop and reconnect, eduroam can come back without a fresh DHCP lease, and the
+# campus network then blocks our IPv4 until a new one (6 min on 2026-10-15, until
+# `nmcli con up eduroam` by hand). That is what this does after 15 s without the gateway.
+# Idle while eduroam is off on purpose (wifi_mode.sh handheld).
+[Unit]
+Description=Reconnect eduroam when its gateway stops answering (lite3_api README.md)
+After=NetworkManager.service
+
+[Service]
+ExecStart=/bin/bash -c 'n=0; while sleep 5; do \
+  nmcli -t -f GENERAL.STATE con show eduroam 2>/dev/null | grep -q activated || { n=0; continue; }; \
+  set -- $$(ip route show default dev wlan0); gw=$$3; \
+  if [ -n "$$gw" ] && ping -c1 -W2 -I wlan0 "$$gw" >/dev/null 2>&1; then n=0; else n=$$((n+1)); fi; \
+  if [ $$n -ge 3 ]; then echo "no gateway for 15 s: reconnecting eduroam"; nmcli con up eduroam; n=0; sleep 30; fi; \
+done'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

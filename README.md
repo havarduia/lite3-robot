@@ -1065,6 +1065,13 @@ the same second, which re-checks the relay within 3 s. Install it once with
 of access point still kicks the handheld off the robot's own Wi-Fi for about 5 s:
 it shares the one radio with eduroam.
 
+Not every change of access point is a quick hand-over. On 2026-10-15 the access point threw him off, he got back
+on 8 s later, but without a fresh DHCP lease, and the campus network
+blocked his IPv4 for 6 minutes, until `nmcli con up eduroam` by hand.
+`env/eduroam-watchdog.service` (on the MOTION computer) pings the eduroam
+gateway every 5 s and does that reconnect after 15 s without a reply. It
+stays idle while eduroam is off on purpose, as in `wifi_mode.sh handheld`.
+
 **Him, in 3D.** A third monitor under Cameras: the robot model posed from
 his joint angles, on a floor grid he walks across, with the two sonar beams
 and the depth scan of "Ahead of him" laid on the floor. Drag to look around
