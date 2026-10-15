@@ -1,4 +1,4 @@
-"""udp_relay - pass WebRTC video between browsers on the tailnet and mediamtx.
+"""udp_relay - pass WebRTC video between browsers (on the tailnet, or a phone on his wifi) and mediamtx.
 
     python3 -m robot.udp_relay <listen ip> <port> <upstream ip> <port>
 

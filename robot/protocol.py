@@ -28,6 +28,7 @@ import subprocess
 import time
 
 MOTION_IP = '192.168.1.120'          # 192.168.2.1 on the robot's own wifi
+AP_IP = '192.168.2.1'                # the motion computer on its own wifi (wifi_mode.sh)
 MOTION_ADDR = (MOTION_IP, 43893)     # jy_exe: every motion command
 TRACKER_ADDR = (MOTION_IP, 43901)    # track service, JSON payloads
 # jetson2app on THIS (perception) computer: the app/handheld AI switch
@@ -40,6 +41,7 @@ CAMERA_WHEP = 'http://%s:8889/test/whep' % MOTION_IP
 RS_RTSP = 'rtsp://%s:8554/realsense' % MOTION_IP
 RS_WHEP = 'http://%s:8889/realsense/whep' % MOTION_IP
 CAMERA_RTC_PORT = 8189
+AP_RTC_PORT = 8190                   # the motion computer forwards it to udp_relay's 8189 (env/robot-nat.sh)
 
 
 class Lite3Error(RuntimeError):

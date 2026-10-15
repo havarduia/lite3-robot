@@ -1059,8 +1059,18 @@ after the last keypress, so a dropped SSH connection stops the robot.
 python3 -m robot.hmi     # then open http://lite3-perception:8080
 ```
 
-An `aiohttp` server bound **only to the Tailscale VPN address**, so nothing on
-the public Wi-Fi can reach it. One self-contained page (phone or laptop, no
+An `aiohttp` server on the **Tailscale VPN address**, so nothing on the
+public Wi-Fi can reach it, and on the robot's own network (`eth0`,
+192.168.1.103) for a phone on **his own wifi** (`YSC-JYML-...-5G`): open
+**http://192.168.2.1:8080** there. That works in every `wifi_mode.sh` mode,
+`handheld` too (no internet, no Tailscale, the best link): the motion
+computer forwards 192.168.2.1:8080 to the panel and UDP 8190 to its camera
+relay (`env/robot-nat.sh`, installed as `/usr/local/bin/robot-nat.sh`), and
+the page's video goes to whichever address it was opened at
+(`video_candidate`). 192.168.2.1, not 192.168.1.103: that one is off the
+phone's wifi subnet, and a phone whose wifi has no internet may send it over
+mobile data. Anyone with the robot's wifi password can drive him this way.
+One self-contained page (phone or laptop, no
 CDN: even its typeface, B612, is embedded) with:
 
 - live status (battery, posture, Nav2, camera, heartbeat, sonars, tilt, pose)

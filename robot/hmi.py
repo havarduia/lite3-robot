@@ -43,6 +43,7 @@ SAY = {'start': 'On my way.', 'arrived': "I'm here.", 'failed': "I couldn't get 
        'door_again': 'Could someone open the door for me, please?',
        'door_open': 'Thank you!', 'door_round': "I'll go another way.",
        'other': 'Excuse me, could you let me pass?'}
+LAN_DEV = 'eth0'        # the perception computer's wire to the motion computer
 DEADMAN_S = 0.3        # drive halts this long after the last stick message
 FORWARD_STOP_M = 0.6   # camera clearance (from body centre), as walk()
 REAR_STOP_M = 0.5      # rear sonar reading
@@ -70,13 +71,26 @@ BASIC = {1: 'lying, ready', 6: 'standing', 8: 'not armed', 9: 'arming',
          98: 'fresh boot'}
 
 
-def tailscale_ip():
-    out = subprocess.run(['ip', '-4', '-o', 'addr', 'show', 'tailscale0'],
-                         capture_output=True, text=True).stdout
+def ip_of(dev):
+    out = subprocess.run(['ip', '-4', '-o', 'addr', 'show', dev], capture_output=True, text=True).stdout
     m = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', out)
-    if not m:
+    return m.group(1) if m else None
+
+
+def tailscale_ip():
+    ip = ip_of('tailscale0')
+    if not ip:
         raise SystemExit('no tailscale0 address - is tailscaled up?')
-    return m.group(1)
+    return ip
+
+
+def video_candidate(host_header, local_ip, tailnet_ip):
+    """Where a page's browser sends its camera traffic (udp_relay): the address
+    it reached the panel at. A phone on his own wifi comes through the motion
+    computer (env/robot-nat.sh); HTTPS comes through `tailscale serve` on localhost."""
+    if host_header.split(':')[0] == P.AP_IP:
+        return P.AP_IP, P.AP_RTC_PORT
+    return (tailnet_ip if local_ip.startswith('127.') else local_ip), P.CAMERA_RTC_PORT
 
 
 class Frames:
@@ -727,8 +741,9 @@ class Server:
             return web.Response(status=502, text='mediamtx unreachable: %s' % e)
         lines = [l for l in sdp.splitlines() if not l.startswith('a=candidate:')]
         at = lines.index('a=end-of-candidates') if 'a=end-of-candidates' in lines else len(lines)
+        local = request.transport.get_extra_info('sockname')[0] if request.transport else self.host
         lines.insert(at, 'a=candidate:1 1 udp 2130706431 %s %d typ host'
-                     % (self.host, P.CAMERA_RTC_PORT))
+                     % video_candidate(request.host, local, self.host))
         return web.Response(status=201, text='\r\n'.join(lines) + '\r\n',
                             content_type='application/sdp')
 
@@ -784,16 +799,21 @@ class Server:
         self.loop.run_until_complete(web.TCPSite(runner, host, PORT).start())
         # localhost too, so `tailscale serve` can put HTTPS in front of it
         self.loop.run_until_complete(web.TCPSite(runner, '127.0.0.1', PORT).start())
+        # and the robot's own network, for a phone on his wifi with no Tailscale (handheld
+        # mode): the motion computer forwards http://192.168.2.1:8080 here (env/robot-nat.sh)
+        lan = ip_of(LAN_DEV)
+        if lan:
+            self.loop.run_until_complete(web.TCPSite(runner, lan, PORT).start())
         relay = subprocess.Popen(
-            [sys.executable, '-m', 'robot.udp_relay', host, str(P.CAMERA_RTC_PORT),
+            [sys.executable, '-m', 'robot.udp_relay', '0.0.0.0', str(P.CAMERA_RTC_PORT),
              P.MOTION_IP, str(P.CAMERA_RTC_PORT)],
             cwd=REPO)
         self.loop.create_task(self.ticker())
         self.loop.create_task(self.model_ticker())
         for sig in (signal.SIGINT, signal.SIGTERM):
             self.loop.add_signal_handler(sig, self.loop.stop)
-        print('HMI on http://%s:%d  (tailnet only) - Ctrl-C sits him and stops'
-              % (host, PORT), flush=True)
+        print('HMI on http://%s:%d (tailnet)%s - Ctrl-C sits him and stops'
+              % (host, PORT, ' and http://%s:%d on his own wifi' % (P.AP_IP, PORT) if lan else ''), flush=True)
         try:
             self.loop.run_forever()
         finally:
