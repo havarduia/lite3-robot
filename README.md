@@ -1207,6 +1207,7 @@ debugging and capturing unknown codes only.
 
     python3 -m robot.rviz                # on the laptop, in ~/lite3_api: the model only
     python3 -m robot.rviz sensors        # plus depth cloud, sonars, costmaps, Nav2 path, goal, person
+    python3 -m robot.rviz nav            # the floor map view (env/lite3_nav.rviz), goals from rviz
     python3 -m robot.rviz /some/topic    # plus any topics you name
     python3 -m robot.rviz --record walk.rec sensors    # the same, and kept in walk.rec
     python3 -m robot.rviz --play walk.rec              # walk.rec again, with no robot
@@ -1220,6 +1221,28 @@ over ssh. That end subscribes to `/joint_states`, `/tf`, `/tf_static`, `/odom_fu
 the topics you name, and writes the messages, undecoded, down the ssh pipe;
 the laptop end republishes them unchanged. `robot_state_publisher` on the
 laptop turns `/joint_states` plus `urdf/lite3.urdf` into the leg frames.
+
+**The floor map view (`nav`).** Opens `env/lite3_nav.rviz` instead: fixed
+frame `map`, seen from above and following him, with the floor map, the
+walls scan, the local costmap, Nav2's global and local paths, RPP's
+lookahead point and collision arc, his footprint, AMCL's particles (with
+`LOCALIZER=amcl`), the sonars and the panel's goal. It needs Nav2 up with a
+floor loaded; without the `map` frame rviz shows nothing but a frame
+warning. The global costmap is in the preset but off and not relayed: on a
+big floor (the arcade map is 200 x 125 m) it is megabytes a second over
+ssh. Add `/global_costmap/costmap` on the command line to have it anyway.
+
+rviz's **2D Goal Pose** and **2D Pose Estimate** go back up the same ssh
+link: the robot end hands them to the panel (`robot/hmi.py`, at
+127.0.0.1:8080 there) as its Go here (`go_point`, with the arrow's heading)
+and I am here (`here`). So the panel's checks apply, the panel shows the
+goal and its Cancel, and the panel's log comes back to the laptop's
+terminal (`panel: ...`), where a refused goal says why. The panel must be
+running. While rviz is connected the panel counts it as a page: closing
+rviz with nobody else on the panel cancels a goal, as closing the page
+does. Only poses in the `map` frame are sent; in the plain view (fixed
+frame `odom`) they are refused with a note. There is no Cancel in rviz:
+use the panel, or its E-STOP.
 
 **Record and replay.** `--record FILE` writes every message that comes down
 the pipe to FILE, each with the time it arrived, while showing it as usual.

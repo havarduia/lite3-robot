@@ -1,12 +1,17 @@
 """rviz - show the live robot in rviz2 on the laptop.
 
     python3 -m robot.rviz [sensors] [topic ...]      on the laptop (ROS2 Jazzy)
-    python3 -m robot.rviz --record FILE [sensors] [topic ...]     the same, kept in FILE
-    python3 -m robot.rviz --play FILE [speed]        FILE again, with no robot
+    python3 -m robot.rviz nav [topic ...]            the floor map view: env/lite3_nav.rviz
+    python3 -m robot.rviz --record FILE [nav|sensors] [topic ...]     the same, kept in FILE
+    python3 -m robot.rviz --play FILE [speed] [nav]  FILE again, with no robot
 
 Copies /joint_states, /tf, /tf_static, /odom_fused and any topics named from the robot to
 the laptop over ssh, and starts robot_state_publisher (urdf/lite3.urdf) and
 rviz2 there. Why ssh and not DDS, and what to expect: README section 10.6.
+
+In rviz, 2D Goal Pose and 2D Pose Estimate (in the map frame) go back up the same
+ssh link to the panel (robot/hmi.py, which must be running) as its Go here and
+I am here, so they get the panel's checks and its Cancel and E-STOP.
 
 The robot end is this same file, started by the laptop end:
     python3 -m robot.rviz --send topic ...
@@ -19,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -40,6 +46,12 @@ GOAL, PERSON = '/intent/goal', '/intent/person'    # from the panel (hmi.py), dr
 SENSORS = ['/camera/depth/color/points', '/us_publisher/ultrasound_front',
            '/us_publisher/ultrasound_distance', '/global_costmap/costmap',
            '/local_costmap/costmap', '/plan', '/local_plan', GOAL, PERSON]
+# `nav`: the floor map view. Not the global costmap: on a big floor it is megabytes a
+# second over ssh (name /global_costmap/costmap to have it anyway).
+NAV = ['/map', '/scan_walls', '/local_costmap/costmap', '/local_costmap/published_footprint',
+       '/plan', '/local_plan', '/lookahead_point', '/lookahead_collision_arc', '/particlecloud',
+       '/us_publisher/ultrasound_front', '/us_publisher/ultrasound_distance', GOAL, PERSON]
+PANEL = 'http://127.0.0.1:8080/ws'     # robot/hmi.py, on the robot; rviz's goals go to it
 MARK_S = 1.5            # a goal or person marker fades this long after the panel last sent it (2 Hz)
 RESCAN_S = 2.0          # look for topics that were not there yet (Nav2 started later)
 RETRY_S = 2.0           # between attempts to reach the robot again
@@ -109,7 +121,44 @@ def send(topics):
 
     scan()
     node.create_timer(RESCAN_S, scan)
+    threading.Thread(target=to_panel, daemon=True).start()
     rclpy.spin(node)
+
+
+def to_panel():
+    """Robot end: each line the laptop end writes (a panel command, JSON) to the panel's
+    WebSocket. Connected at the first one and kept open: while it is, the panel counts
+    rviz as a page, so closing rviz stops a goal it sent as closing the page would."""
+    import asyncio
+    import aiohttp
+
+    async def run():
+        loop, lines, ws = asyncio.get_event_loop(), asyncio.Queue(), None
+
+        def read():
+            for line in sys.stdin:
+                loop.call_soon_threadsafe(lines.put_nowait, line)
+        threading.Thread(target=read, daemon=True).start()
+
+        async def drain(ws):
+            # Read all of it so its pings are answered; its log is shown on the laptop
+            # (there a refused goal says why).
+            async for m in ws:
+                if m.type == aiohttp.WSMsgType.TEXT and '"t": "log"' in m.data:
+                    msg = json.loads(m.data)
+                    print('panel: %s' % msg.get('msg'), file=sys.stderr, flush=True)
+        async with aiohttp.ClientSession() as http:
+            while True:
+                line = (await lines.get()).strip()
+                try:
+                    if ws is None or ws.closed:
+                        ws = await http.ws_connect(PANEL)
+                        loop.create_task(drain(ws))
+                    await ws.send_str(line)
+                    print('to the panel: %s' % line, file=sys.stderr, flush=True)
+                except (aiohttp.ClientError, OSError) as e:
+                    print('not sent, is the panel (robot.hmi) running? %s' % e, file=sys.stderr, flush=True)
+    asyncio.new_event_loop().run_until_complete(run())
 
 
 def read(pipe, n):
@@ -199,7 +248,7 @@ def height(joints):
     return -low
 
 
-def show(extra, record=None, play=None, speed=1.0):
+def show(extra, record=None, play=None, speed=1.0, nav=False):
     """Laptop end. `record`: also keep every frame in that file. `play`: take the frames
     from that file, not from the robot."""
     # The laptop's own DDS setup belongs to another robot network; stay on this machine.
@@ -208,7 +257,7 @@ def show(extra, record=None, play=None, speed=1.0):
     import rclpy
     from ament_index_python.packages import get_package_prefix
     from builtin_interfaces.msg import Duration
-    from geometry_msgs.msg import PointStamped, PoseStamped, TransformStamped
+    from geometry_msgs.msg import PointStamped, PoseStamped, PoseWithCovarianceStamped, TransformStamped
     from nav_msgs.msg import Odometry
     from sensor_msgs.msg import JointState, Range
     from std_msgs.msg import Float64
@@ -222,7 +271,8 @@ def show(extra, record=None, play=None, speed=1.0):
     urdf = tempfile.NamedTemporaryFile('w', suffix='.urdf')
     urdf.write(model())
     urdf.flush()
-    extra = [t for arg in extra for t in (SENSORS if arg == 'sensors' else [arg])]
+    nav = nav or 'nav' in extra
+    extra = [t for arg in extra for t in {'sensors': SENSORS, 'nav': NAV}.get(arg, [arg])]
     topics = TOPICS + [t for t in extra if t not in TOPICS]
     procs = [
         # The program itself: `ros2 run` leaves it running when it is told to stop.
@@ -230,10 +280,12 @@ def show(extra, record=None, play=None, speed=1.0):
                                        'robot_state_publisher', 'robot_state_publisher'),
                           urdf.name],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-        subprocess.Popen(['rviz2', '-d', os.path.join(ROOT, 'env', 'lite3.rviz')],
+        subprocess.Popen(['rviz2', '-d', os.path.join(ROOT, 'env', 'lite3_nav.rviz' if nav else 'lite3.rviz')],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
     ]
     rviz = procs[1]
+
+    link = {'ssh': None}
 
     def connect():
         # Keepalive: a laptop that changes network leaves a dead connection that
@@ -241,7 +293,8 @@ def show(extra, record=None, play=None, speed=1.0):
         procs.append(subprocess.Popen(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=3',
              '-o', 'ServerAliveCountMax=2', ROBOT, REMOTE + ' '.join(topics)],
-            stdout=subprocess.PIPE))
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE))
+        link['ssh'] = procs[-1]
         return procs[-1]
 
     def live():
@@ -270,6 +323,28 @@ def show(extra, record=None, play=None, speed=1.0):
     sonar = {topic: (name, top, node.create_publisher(Range, '/sonar/' + name, 1))
              for name, (topic, _, _, top) in SONARS.items()}
     mark_pub = node.create_publisher(Marker, '/intent/markers', 5)
+
+    def to_robot(cmd, pose, frame):
+        # rviz's pose tools: the panel's Go here (go_point) and I am here (here)
+        if frame != 'map':
+            print('not sent: rviz gave it in %s; a goal or a pose is on the map (Fixed Frame map, `nav`)' % frame)
+            return
+        q = pose.orientation
+        msg = {'cmd': cmd, 'x': round(pose.position.x, 2), 'y': round(pose.position.y, 2),
+               'deg': round(math.degrees(math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))))}
+        ssh = link['ssh']
+        if ssh is None:
+            print('not sent: playing a recording, no robot')
+            return
+        try:
+            ssh.stdin.write((json.dumps(msg) + '\n').encode())
+            ssh.stdin.flush()
+        except OSError:
+            print('not sent: the link to the robot is down')
+    node.create_subscription(PoseStamped, '/goal_pose', lambda m: to_robot('go_point', m.pose, m.header.frame_id), 1)
+    node.create_subscription(PoseWithCovarianceStamped, '/initialpose',
+                             lambda m: to_robot('here', m.pose.pose, m.header.frame_id), 1)
+    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()     # for those two
     high = stamp = None
 
     def odom_tf(data):
@@ -399,6 +474,7 @@ if __name__ == '__main__':
     elif sys.argv[1:2] == ['--record']:
         show(sys.argv[3:], record=sys.argv[2])
     elif sys.argv[1:2] == ['--play']:
-        show([], play=sys.argv[2], speed=float(sys.argv[3]) if sys.argv[3:] else 1.0)
+        rest = sys.argv[3:]
+        show([], play=sys.argv[2], speed=next((float(a) for a in rest if a != 'nav'), 1.0), nav='nav' in rest)
     else:
         show(sys.argv[1:])
