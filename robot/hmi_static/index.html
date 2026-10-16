@@ -109,9 +109,19 @@ h2 { font-size: 16px; }
 
 #scan { display: block; width: 100%; aspect-ratio: 4 / 3; }
 #floormap { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 72vh; touch-action: pan-y; cursor: crosshair; }
-#floormap.here { touch-action: none; }
+#floormap.grab { touch-action: none; }      /* zoomed in or placing: a finger pans or drags, the page does not scroll */
+#floormap.panning { cursor: grabbing; }
+.mapglass { position: relative; }
+.mapkeys { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.mapkeys .key { min-width: 44px; padding: 0 10px; font-size: 17px; background: var(--glass); color: var(--on-glass); border-color: var(--dim); box-shadow: none; }
+.mapkeys .key:disabled { opacity: .4; cursor: default; }
 #map .line { margin-top: 12px; }
-#map-hint { flex: 1; min-width: 12em; }
+#map-hint { flex: 1; min-width: 12em; color: var(--ink-2); }
+#map-pick input[type=number] { width: 5.4em; }
+#map-pick .face { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 200px; max-width: 340px; }
+#map-pick .push { margin-left: auto; display: inline-flex; gap: 8px; }
+#map details { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--groove); }
+#map summary { min-height: 44px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
 .readouts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 12px; }
 .readouts div { display: flex; align-items: baseline; gap: 8px; }
 .readouts dt { color: var(--ink-2); font-size: 13px; }
@@ -378,22 +388,47 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
         <button class="key" id="floor-load">Load</button>
       </span>
     </div>
-    <div class="glass"><canvas id="floormap" aria-label="floor map: press a spot to send him there"></canvas></div>
+    <div class="glass mapglass">
+      <canvas id="floormap" tabindex="0" aria-label="floor map: press a spot to put the goal there"></canvas>
+      <div class="mapkeys">
+        <button class="key" id="zoom-in" title="Zoom in (+)" aria-label="zoom in">+</button>
+        <button class="key" id="zoom-out" title="Zoom out (−)" aria-label="zoom out">−</button>
+        <button class="key" id="zoom-fit" title="The whole floor (0)">Fit</button>
+        <button class="key" id="zoom-him" title="Centre on him">Him</button>
+      </div>
+    </div>
     <div class="line">
       <button class="key" id="map-here" aria-pressed="false">I am here</button>
       <span id="map-hint"></span>
-      <button class="key" id="map-no" hidden>No</button>
-      <button class="key go" id="map-ok" hidden>Go here</button>
     </div>
-    <div class="line">
-      <input id="map-name" type="text" placeholder="new map" aria-label="name of the new map" autocapitalize="off" spellcheck="false">
-      <button class="key" id="map-record">Record map</button>
-      <span id="map-rec" class="lamp busy" hidden></span>
-      <button class="key" id="map-cancel" hidden>Cancel</button>
-      <button class="key go" id="map-save" hidden>Save</button>
+    <div class="line" id="map-pick" hidden>
+      <label class="unit">x <input id="pick-x" type="number" step="0.05" inputmode="decimal" aria-label="goal x, metres"></label>
+      <label class="unit">y <input id="pick-y" type="number" step="0.05" inputmode="decimal" aria-label="goal y, metres"> m</label>
+      <span class="sel" role="group" aria-label="heading at the goal">
+        <button class="key" id="face-any" aria-pressed="true">Any way</button>
+        <button class="key" id="face-set" aria-pressed="false">Facing</button>
+      </span>
+      <span class="face">
+        <input id="pick-deg" type="range" min="-180" max="180" step="1" aria-label="heading at the goal, degrees">
+        <output id="pick-deg-out"></output>
+      </span>
+      <span class="push">
+        <button class="key" id="map-no">No</button>
+        <button class="key go" id="map-ok">Go here</button>
+      </span>
     </div>
-    <p class="note">Record map: stand him still where the map should start (tape that spot and the way he faces: it becomes the floor's start), name it, press Record map, drive him round with the handheld, press Save. Saving takes a minute or two; the new floor then shows up under Load. Nav2 goes off while recording.</p>
-    <p class="note">Load starts Nav2 on that floor's map, and he must then be told where he is: press I am here, press the spot where he stands and drag the way he faces. After that a press on the map asks before it sends him. Grey he has never seen counts as wall. Cancel is under Navigate.</p>
+    <details id="map-new">
+      <summary>Record a new map</summary>
+      <div class="line">
+        <input id="map-name" type="text" placeholder="new map" aria-label="name of the new map" autocapitalize="off" spellcheck="false">
+        <button class="key" id="map-record">Record map</button>
+        <span id="map-rec" class="lamp busy" hidden></span>
+        <button class="key" id="map-cancel" hidden>Cancel</button>
+        <button class="key go" id="map-save" hidden>Save</button>
+      </div>
+      <p class="note">Stand him still where the map should start (tape that spot and the way he faces: it becomes the floor's start), name it, press Record map, drive him round with the handheld, press Save. Saving takes a minute or two; the new floor then shows up under Load. Nav2 goes off while recording.</p>
+    </details>
+    <p class="note">Load starts Nav2 on that floor's map; then press I am here and put him where he stands. A press on the map puts the goal there: drag its ring to move it and its knob to turn it, or type the numbers (with the map focused: arrows move it, [ ] turn it, Enter sends). Pinch, the wheel or + − zoom; drag to pan once zoomed in. Grey he has never seen counts as wall. Cancel is under Navigate.</p>
   </section>
 
 </main>
@@ -577,9 +612,16 @@ const redraw = () => drawScan(lastStatus ? lastStatus.scan : undefined);    // u
 new ResizeObserver(redraw).observe($('scan'));
 document.fonts.ready.then(redraw);
 
-// --- floor map: where he is on it, and a press to send him somewhere ---------
-const MAP = { floor: null, img: null, rows: 0, box: null, view: null, pick: null, down: null, asked: null };
-const TAP_PX = 12;      // a press that moves further is a drag: a heading in "I am here", a scroll otherwise
+// --- floor map: where he is on it, and a goal to send him to ----------------
+// The view: zoom 1 shows the whole mapped part; c is the map point at the canvas centre.
+const MAP = { floor: null, img: null, rows: 0, cols: 0, box: null, view: null, pick: null, asked: null,
+              zoom: 1, c: null, ptrs: new Map(), drag: null };
+const TAP_PX = 10;      // a press that moves further is a drag
+const GRAB_PX = 24;     // how near the goal's ring or knob a press must be to take it
+const KNOB_PX = 40;     // the heading knob, this far out from the goal
+const MAX_PX_PER_M = 300;
+const deg = (rad) => Math.round(rad * 180 / Math.PI);
+const wrapDeg = (d) => ((Math.round(d) + 540) % 360) - 180;
 
 // The PGM the map server reads, painted once: walls solid, mapped floor faint, never-seen left as glass.
 async function loadMap(floor) {
@@ -606,14 +648,14 @@ async function loadMap(floor) {
     cols[k % W]++; rows[(k - k % W) / W]++;
   }
   g.putImageData(d, 0, 0);
-  // Shown: the columns and rows with more than a few mapped cells (a lone speck far off would
+  // Fit: the columns and rows with more than a few mapped cells (a lone speck far off would
   // shrink everything else), and a margin round them.
   const FEW = 5, pad = 8, busy = (n) => n > FEW;
   let c0 = cols.findIndex(busy), c1 = cols.length - 1 - [...cols].reverse().findIndex(busy);
   let r0 = rows.findIndex(busy), r1 = rows.length - 1 - [...rows].reverse().findIndex(busy);
   if (c0 < 0 || r0 < 0) { c0 = r0 = 0; c1 = W - 1; r1 = H - 1; }
   c0 = Math.max(0, c0 - pad); r0 = Math.max(0, r0 - pad); c1 = Math.min(W - 1, c1 + pad); r1 = Math.min(H - 1, r1 + pad);
-  Object.assign(MAP, { floor, img, rows: H, box: { c0, r0, w: c1 - c0 + 1, h: r1 - r0 + 1 }, pick: null });
+  Object.assign(MAP, { floor, img, rows: H, cols: W, box: { c0, r0, w: c1 - c0 + 1, h: r1 - r0 + 1 }, pick: null, zoom: 1, c: null });
   $('floormap').style.aspectRatio = Math.min(2, Math.max(0.75, MAP.box.w / MAP.box.h));
   drawMap();
 }
@@ -636,13 +678,41 @@ function mapStatus(s) {
     + Math.floor(rec.t / 60) + ':' + String(rec.t % 60).padStart(2, '0') : '';
   $('map-record').hidden = !!(rec || saving);
   $('map-save').hidden = $('map-cancel').hidden = !rec || saving;
+  if (rec || saving) $('map-new').open = true;
   $('map-state').textContent = !m ? 'No floor' : m.why ? m.floor + ': not placed' : m.floor;
   $('map-state').className = 'lamp' + (!m ? ' off' : m.why ? ' busy' : '');
   drawMap();
 }
 
-function setHere(on) { lit('map-here', on); $('floormap').classList.toggle('here', on); }
+function setHere(on) { lit('map-here', on); }
 const hereOn = () => $('map-here').getAttribute('aria-pressed') === 'true';
+
+// Map metres <-> canvas pixels for the current zoom; keeps the view on the mapped part.
+function mapView(m, W, H) {
+  const b = MAP.box, res = m.res;
+  const x0 = m.origin[0] + b.c0 * res, y1 = m.origin[1] + (MAP.rows - b.r0) * res, bw = b.w * res, bh = b.h * res;
+  const fit = Math.min((W - 16) / bw, (H - 16) / bh);
+  MAP.zoom = Math.min(Math.max(1, MAP.zoom), Math.max(1, MAX_PX_PER_M / fit));
+  const k = fit * MAP.zoom, mid = [x0 + bw / 2, y1 - bh / 2];
+  // zoomed out the map sits in the middle; zoomed in its edge may come no further in than the middle
+  const c = MAP.zoom === 1 || !MAP.c ? mid : [Math.min(Math.max(MAP.c[0], x0), x0 + bw), Math.min(Math.max(MAP.c[1], y1 - bh), y1)];
+  MAP.c = c;
+  const X = (x) => W / 2 + (x - c[0]) * k, Y = (y) => H / 2 - (y - c[1]) * k;
+  const at = (sx, sy) => ({ x: c[0] + (sx - W / 2) / k, y: c[1] - (sy - H / 2) / k });
+  const inside = (p) => p.x >= x0 && p.x <= x0 + bw && p.y >= y1 - bh && p.y <= y1;
+  return { k, X, Y, at, inside, W, H };
+}
+
+// Zoom by f keeping the map point p (by default the one under (sx, sy)) at (sx, sy).
+// A pinch passes the zoom, scale and point it started from.
+function zoomAt(f, sx, sy, z0 = MAP.zoom, k0 = MAP.view && MAP.view.k, p = MAP.view && MAP.view.at(sx, sy)) {
+  const v = MAP.view; if (!v) return;
+  const fit = k0 / z0;
+  MAP.zoom = Math.min(Math.max(1, z0 * f), Math.max(1, MAX_PX_PER_M / fit));
+  const k = fit * MAP.zoom;
+  MAP.c = [p.x - (sx - v.W / 2) / k, p.y + (sy - v.H / 2) / k];
+  drawMap();
+}
 
 function drawMap() {
   const s = lastStatus, m = s && s.map, cv = $('floormap'), g = cv.getContext('2d'), dpr = window.devicePixelRatio || 1;
@@ -653,28 +723,23 @@ function drawMap() {
   const css = getComputedStyle(cv), col = (n) => css.getPropertyValue(n).trim();
   g.font = '11px B612, sans-serif'; g.textAlign = 'center';
   const ready = m && MAP.img && MAP.floor === m.floor;
-  $('map-ok').hidden = $('map-no').hidden = !(ready && pick);
-  $('map-ok').textContent = pick && pick.here ? 'Set position' : 'Go here';
-  $('floormap').classList.toggle('here', hereOn() || !!pick);   // a drag sets a heading, not a scroll
+  pickControls(ready && pick, m);
+  cv.classList.toggle('grab', !!ready && (MAP.zoom > 1 || !!pick || hereOn()));
   $('map-hint').textContent = !m ? 'Pick a floor and press Load. He should be standing.'
-    : pick ? `${pick.here ? 'He is at' : 'Send him to'} ${fmt(pick.x, 1)}, ${fmt(pick.y, 1)} m` +
-      (pick.deg != null ? `, facing ${fmt(pick.deg, 0)}°?` : '? Drag on the map for the way he should face.')
-    : hereOn() ? 'Press where he stands and drag the way he faces.'
+    : pick ? (pick.here ? 'Where he stands: drag the ring to move it, the knob to the way he faces.'
+                        : 'Drag the ring to move the goal, the knob to choose the way he ends up facing.')
+    : hereOn() ? 'Press where he stands.'
     : m.why ? `He cannot be sent anywhere: ${m.why}. Press I am here.`
-    : 'Press a spot to send him there.';
+    : 'Press a spot to put the goal there.';
+  for (const id of ['zoom-in', 'zoom-out', 'zoom-fit', 'zoom-him']) $(id).disabled = !ready;
   if (!ready) {
     MAP.view = null;
     g.fillStyle = col('--trace'); g.fillText(m ? 'Fetching the map of ' + m.floor : 'No floor loaded', W / 2, H / 2);
     return;
   }
-  // pixels per metre; the map's x runs right and its y up, the picture's top row is the largest y
-  const b = MAP.box, k = Math.min((W - 16) / (b.w * m.res), (H - 16) / (b.h * m.res));
-  const x0 = m.origin[0] + b.c0 * m.res, y1 = m.origin[1] + (MAP.rows - b.r0) * m.res;
-  const left = (W - b.w * m.res * k) / 2, top = (H - b.h * m.res * k) / 2;
-  const X = (x) => left + (x - x0) * k, Y = (y) => top + (y1 - y) * k;
-  MAP.view = { k, x0, y1, left, top, w: b.w * m.res, h: b.h * m.res };
+  const v = MAP.view = mapView(m, W, H), { k, X, Y } = v;
   g.imageSmoothingEnabled = false;
-  g.drawImage(MAP.img, b.c0, b.r0, b.w, b.h, left, top, b.w * m.res * k, b.h * m.res * k);
+  g.drawImage(MAP.img, X(m.origin[0]), Y(m.origin[1] + MAP.rows * m.res), MAP.cols * m.res * k, MAP.rows * m.res * k);
 
   g.fillStyle = col('--dim'); g.textAlign = 'start';
   for (const [name, x, y] of m.places || []) {                // saved places
@@ -695,47 +760,145 @@ function drawMap() {
     g.restore();
   };
   if (m.pose) him(m.pose[0], m.pose[1], m.pose[2], !m.why);
-  if (pick) {                                                 // what the next key press would do
+  if (pick) {                                                 // the goal: a ring to drag, a knob to turn
+    const px = X(pick.x), py = Y(pick.y), a = pickYaw(pick, m), set = pick.deg != null;
+    if (set) him(pick.x, pick.y, a, false);
+    const hx = px + KNOB_PX * Math.cos(a), hy = py - KNOB_PX * Math.sin(a);
     g.strokeStyle = col('--yellow'); g.lineWidth = 2;
-    if (pick.deg != null) him(pick.x, pick.y, pick.deg * Math.PI / 180, false);
-    if (!pick.here) { g.setLineDash([5, 4]); ring(pick.x, pick.y, 9); g.setLineDash([]); }
+    g.setLineDash(set ? [] : [4, 4]);
+    g.beginPath(); g.moveTo(px, py); g.lineTo(hx, hy); g.stroke();
+    g.setLineDash([]);
+    g.beginPath(); g.arc(px, py, 11, 0, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(px, py, 2.5, 0, 2 * Math.PI); g.fillStyle = col('--yellow'); g.fill();
+    g.beginPath(); g.arc(hx, hy, 8, 0, 2 * Math.PI);
+    if (set) g.fill(); else { g.fillStyle = col('--glass'); g.fill(); g.stroke(); }
   }
 }
 new ResizeObserver(drawMap).observe($('floormap'));
 
-// A press on the map: the point in map metres, or null off the mapped part.
-function mapPoint(e) {
-  const v = MAP.view; if (!v) return null;
-  const r = $('floormap').getBoundingClientRect();
-  const x = (e.clientX - r.left - v.left) / v.k, y = (e.clientY - r.top - v.top) / v.k;
-  return x < 0 || y < 0 || x > v.w || y > v.h ? null : { x: v.x0 + x, y: v.y1 - y };
+// The goal's heading in radians: the one set, or (shown dashed) the way he would arrive from where he is.
+function pickYaw(p, m) {
+  if (p.deg != null) return p.deg * Math.PI / 180;
+  return m && m.pose ? Math.atan2(p.y - m.pose[1], p.x - m.pose[0]) : 0;
 }
-$('floormap').addEventListener('pointerdown', (e) => {
-  const p = mapPoint(e); if (!p) return;
-  MAP.down = { ...p, cx: e.clientX, cy: e.clientY };
-  if (hereOn() || MAP.pick) $('floormap').setPointerCapture(e.pointerId);
-});
-const mapDrag = (e, done) => {
-  const d = MAP.down; if (!d) return;
-  const dx = e.clientX - d.cx, dy = e.clientY - d.cy, far = Math.hypot(dx, dy) > TAP_PX;
-  const dragDeg = Math.round(Math.atan2(-dy, dx) * 180 / Math.PI);   // the map's y runs up, the screen's down
-  if (hereOn()) {                                             // the drag is the way he faces; a plain press keeps his heading
-    const now = lastStatus && lastStatus.map && lastStatus.map.pose;
-    MAP.pick = { x: d.x, y: d.y, deg: far ? dragDeg : now ? Math.round(now[2] * 180 / Math.PI) : 0, here: true };
-  } else if (far && MAP.pick) MAP.pick = { ...MAP.pick, deg: dragDeg };   // after a goal press: the way to end up facing
-  else if (done && !far && !(lastStatus.map || {}).why) MAP.pick = { x: d.x, y: d.y };   // a heading only by dragging again
-  if (done) MAP.down = null;
+
+// The row under the map: the goal's numbers, its heading switch and fader, and the keys.
+function pickControls(p, m) {
+  $('map-pick').hidden = !p;
+  if (!p) return;
+  const typing = (id) => document.activeElement === $(id);
+  if (!typing('pick-x')) $('pick-x').value = p.x.toFixed(2);
+  if (!typing('pick-y')) $('pick-y').value = p.y.toFixed(2);
+  const d = p.deg != null ? p.deg : deg(pickYaw(p, m));
+  if (!typing('pick-deg')) $('pick-deg').value = d;
+  $('pick-deg-out').textContent = fmt(d, 0) + '°';
+  $('face-any').hidden = !!p.here;                // where he stands always has a heading
+  lit('face-any', p.deg == null); lit('face-set', p.deg != null);
+  $('pick-deg-out').style.opacity = p.deg == null ? .5 : 1;
+  $('map-ok').textContent = p.here ? 'Set position' : 'Go here';
+}
+
+const canvasXY = (e) => { const r = $('floormap').getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+function placeAt(sx, sy) {
+  const v = MAP.view, m = lastStatus && lastStatus.map; if (!v || !m) return;
+  const p = v.at(sx, sy); if (!v.inside(p)) return;
+  if (hereOn()) MAP.pick = { x: p.x, y: p.y, deg: MAP.pick && MAP.pick.here ? MAP.pick.deg : m.pose ? deg(m.pose[2]) : 0, here: true };
+  else if (!m.why) MAP.pick = { x: p.x, y: p.y, deg: MAP.pick ? MAP.pick.deg : null };
   drawMap();
+}
+
+const cv = $('floormap');
+cv.addEventListener('pointerdown', (e) => {
+  const v = MAP.view; if (!v) return;
+  const [sx, sy] = canvasXY(e);
+  MAP.ptrs.set(e.pointerId, [sx, sy]);
+  cv.setPointerCapture(e.pointerId);
+  if (MAP.ptrs.size === 2) {                                  // a pinch: zoom and pan about the fingers' middle
+    const [[ax, ay], [bx, by]] = [...MAP.ptrs.values()];
+    MAP.drag = { mode: 'pinch', d0: Math.hypot(bx - ax, by - ay), z0: MAP.zoom, k0: v.k, p0: v.at((ax + bx) / 2, (ay + by) / 2) };
+    return;
+  }
+  if (MAP.ptrs.size > 2) return;
+  let mode = 'press';
+  const p = MAP.pick;
+  if (p) {
+    const px = v.X(p.x), py = v.Y(p.y), a = pickYaw(p, lastStatus.map);
+    if (Math.hypot(sx - (px + KNOB_PX * Math.cos(a)), sy - (py - KNOB_PX * Math.sin(a))) < GRAB_PX) mode = 'turn';
+    else if (Math.hypot(sx - px, sy - py) < GRAB_PX) mode = 'move';
+  }
+  MAP.drag = { mode, sx, sy, c0: MAP.c };
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!MAP.ptrs.has(e.pointerId) || !MAP.drag || !MAP.view) return;
+  const [sx, sy] = canvasXY(e), d = MAP.drag, v = MAP.view, p = MAP.pick;
+  MAP.ptrs.set(e.pointerId, [sx, sy]);
+  if (d.mode === 'pinch') {
+    if (MAP.ptrs.size < 2) return;
+    const [[ax, ay], [bx, by]] = [...MAP.ptrs.values()], mx = (ax + bx) / 2, my = (ay + by) / 2;
+    zoomAt(Math.hypot(bx - ax, by - ay) / d.d0, mx, my, d.z0, d.k0, d.p0);
+    return;
+  } else if (d.mode === 'turn') {
+    p.deg = deg(Math.atan2(-(sy - v.Y(p.y)), sx - v.X(p.x)));
+  } else if (d.mode === 'move') {
+    const q = v.at(sx, sy); if (v.inside(q)) { p.x = q.x; p.y = q.y; }
+  } else {
+    if (d.mode === 'press' && Math.hypot(sx - d.sx, sy - d.sy) > TAP_PX) { d.mode = 'pan'; cv.classList.add('panning'); }
+    if (d.mode === 'pan') MAP.c = [d.c0[0] - (sx - d.sx) / v.k, d.c0[1] + (sy - d.sy) / v.k];
+  }
+  drawMap();
+});
+const mapUp = (e, cancelled) => {
+  if (!MAP.ptrs.delete(e.pointerId)) return;
+  const d = MAP.drag;
+  if (d && d.mode === 'press' && !cancelled) placeAt(...canvasXY(e));
+  if (!MAP.ptrs.size || (d && d.mode === 'pinch')) { MAP.drag = null; cv.classList.remove('panning'); }
 };
-$('floormap').addEventListener('pointermove', (e) => { if (hereOn() || MAP.pick) mapDrag(e, false); });
-$('floormap').addEventListener('pointerup', (e) => mapDrag(e, true));
-$('floormap').addEventListener('pointercancel', () => { MAP.down = null; });    // the page scrolled instead
+cv.addEventListener('pointerup', (e) => mapUp(e, false));
+cv.addEventListener('pointercancel', (e) => mapUp(e, true));     // the page scrolled instead
+cv.addEventListener('wheel', (e) => {
+  if (!MAP.view) return;
+  e.preventDefault();
+  zoomAt(Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015)), ...canvasXY(e));
+}, { passive: false });
+cv.addEventListener('keydown', (e) => {
+  if (!MAP.view) return;
+  const v = MAP.view, p = MAP.pick, step = e.shiftKey ? 0.25 : 0.05;
+  const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key];
+  if (e.key === '+' || e.key === '=') zoomAt(1.5, v.W / 2, v.H / 2);
+  else if (e.key === '-') zoomAt(1 / 1.5, v.W / 2, v.H / 2);
+  else if (e.key === '0') { MAP.zoom = 1; drawMap(); }
+  else if (nudge && p) { p.x += nudge[0]; p.y += nudge[1]; drawMap(); }
+  else if ((e.key === '[' || e.key === ']') && p) { p.deg = wrapDeg((p.deg != null ? p.deg : deg(pickYaw(p, lastStatus.map))) + (e.key === '[' ? 5 : -5)); drawMap(); }
+  else if (e.key === 'Enter' && p) $('map-ok').click();
+  else if (e.key === 'Escape' && p) $('map-no').click();
+  else return;
+  e.preventDefault();
+});
+$('zoom-in').addEventListener('click', () => MAP.view && zoomAt(1.6, MAP.view.W / 2, MAP.view.H / 2));
+$('zoom-out').addEventListener('click', () => MAP.view && zoomAt(1 / 1.6, MAP.view.W / 2, MAP.view.H / 2));
+$('zoom-fit').addEventListener('click', () => { MAP.zoom = 1; drawMap(); });
+$('zoom-him').addEventListener('click', () => {
+  const m = lastStatus && lastStatus.map; if (!m || !m.pose || !MAP.view) return;
+  MAP.zoom = Math.max(MAP.zoom, 3); MAP.c = [m.pose[0], m.pose[1]]; drawMap();
+});
+
+const pickNum = (id, key) => $(id).addEventListener('input', () => {
+  const v = parseFloat($(id).value); if (!MAP.pick || !Number.isFinite(v)) return;
+  MAP.pick[key] = v; drawMap();
+});
+pickNum('pick-x', 'x'); pickNum('pick-y', 'y');
+$('pick-deg').addEventListener('input', () => { if (MAP.pick) { MAP.pick.deg = +$('pick-deg').value; drawMap(); } });
+$('face-any').addEventListener('click', () => { if (MAP.pick && !MAP.pick.here) { MAP.pick.deg = null; drawMap(); } });
+$('face-set').addEventListener('click', () => {
+  const p = MAP.pick; if (p && p.deg == null) { p.deg = deg(pickYaw(p, lastStatus.map)); drawMap(); }
+});
 $('map-here').addEventListener('click', () => { setHere(!hereOn()); MAP.pick = null; drawMap(); });
 $('map-no').addEventListener('click', () => { MAP.pick = null; drawMap(); });
 $('map-ok').addEventListener('click', () => {
-  const p = MAP.pick; if (!p) return;
+  const p = MAP.pick, v = MAP.view; if (!p) return;
+  if (v && !v.inside(p)) { $('map-hint').textContent = 'That point is off the map.'; return; }
   const at = { x: +p.x.toFixed(2), y: +p.y.toFixed(2) };
-  send({ cmd: p.here ? 'here' : 'go_point', ...at, ...(p.deg != null && { deg: p.deg }) });   // a goal without a drag has no heading
+  send({ cmd: p.here ? 'here' : 'go_point', ...at, ...(p.deg != null && { deg: wrapDeg(p.deg) }) });   // "Any way": no heading
   MAP.pick = null; setHere(false); drawMap();
 });
 $('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });

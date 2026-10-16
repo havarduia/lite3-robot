@@ -366,55 +366,9 @@ def main():
     r, halted, _ = run(lambda b: b.go_to_point(2.0, 5.0), at=(1.0, lambda w: setattr(w, 'loc_stopped', w.t)), **on_floor())
     assert isinstance(r, L.Lite3Error) and 'lost' in str(r) and halted and len(GOALS) == before, r
 
-    # a closed door on the way (robot/doorway.py): the floor map has a wall across x = 3.5 with a
-    # 0.8 m gap at y = 5, on his way from (5, 5) to (2, 5); the costmap marks the gap when it shuts
-    real_root = places.ROOT
-    with tempfile.TemporaryDirectory() as places.ROOT:
-        os.makedirs(os.path.join(places.ROOT, 'lab'))
-        cells = bytearray([254] * 10000)
-        for row in range(100):
-            if not 46 <= 99 - row <= 53:            # y 4.6 .. 5.4 stays open
-                cells[row * 100 + 35] = 0
-        open(os.path.join(places.ROOT, 'lab', 'map.pgm'), 'wb').write(b'P5\n100 100\n255\n' + bytes(cells))
-        open(os.path.join(places.ROOT, 'lab', 'map.yaml'), 'w').write('image: map.pgm\nresolution: 0.1\norigin: [0.0, 0.0, 0.0]\n')
-
-        def door(w, shut, at=(3.5, 5.0)):
-            cx, cy = int(at[0] / 0.1), int(at[1] / 0.1)
-            for r in range(cy - 2, cy + 3):
-                for c in range(cx - 1, cx + 2):
-                    w.grid.data[r * 100 + c] = 100 if shut else 0
-
-        said = []
-        go = lambda b: b.go_to_point(2.0, 5.0, say=said.append)          # noqa: E731
-        # A: shut before he sets off, opened 12 s in: he stops, asks, thanks, goes on
-        pretend_nav2(arrives=20.0)
-        before = len(GOALS)
-        r, halted, _ = run(go, at=(1.0, lambda w: door(w, True) or setattr(w, 'at', (12.0, lambda w: door(w, False)))),
-                           **on_floor())
-        assert r == nav.SUCCEEDED and said == ['start', 'door', 'door_open'], (r, said)
-        assert CANCELS and len(GOALS) == before + 2, (CANCELS, len(GOALS) - before)     # Nav2 was stopped from going round
-        # B: it stays shut and there is another way: asked twice, then round after DOOR_WAIT_S
-        del said[:], CANCELS[:]
-        pretend_nav2(arrives=5.0)
-        r, _, _ = run(go, at=(1.0, lambda w: door(w, True)), **on_floor())
-        assert r == nav.SUCCEEDED and said == ['start', 'door', 'door_again', 'door_round'], (r, said)
-        # C: it stays shut and there is no other way: he waits and keeps asking until cancelled, stopped
-        del said[:]
-        pretend_nav2(arrives=5.0)
-        r, halted, _ = run(go, at=(1.0, lambda w: door(w, True) or NO_ROUTE.append('wall') or setattr(
-            w, 'at', (70.0, lambda w: w.bot.goto_cancel()))), **on_floor())
-        assert r == nav.CANCELED and halted and said[:3] == ['start', 'door', 'door_again'] and said.count('door') >= 2, (r, said)
-        del NO_ROUTE[:]
-        # D: something in the open 1 m ahead (no wall near it on the map): asked once to let him pass, not stopped
-        del said[:]
-        pretend_nav2(arrives=8.0)
-        before = len(GOALS)
-        r, _, _ = run(go, at=(1.0, lambda w: door(w, True, at=(4.0, 5.0))), **on_floor())
-        assert r == nav.SUCCEEDED and said == ['start', 'other'] and len(GOALS) == before + 1, (r, said)
-    places.ROOT = real_root
-
     # places: saved where he stands or at a point, gone to by name
     pretend_nav2(arrives=2.0)
+    real_root = places.ROOT
     with tempfile.TemporaryDirectory() as places.ROOT:
         os.makedirs(os.path.join(places.ROOT, 'lab'))
         open(os.path.join(places.ROOT, 'lab', 'map.yaml'), 'w').close()

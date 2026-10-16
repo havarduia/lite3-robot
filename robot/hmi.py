@@ -38,11 +38,7 @@ PORT = 8080
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hmi_static')
 
 # What he says on a map goal (nav.go_to_point's say()). Fixed lines: quick and the same every time.
-SAY = {'start': 'On my way.', 'arrived': "I'm here.", 'failed': "I couldn't get there.",
-       'door': 'The door is closed. Could you open it for me, please?',
-       'door_again': 'Could someone open the door for me, please?',
-       'door_open': 'Thank you!', 'door_round': "I'll go another way.",
-       'other': 'Excuse me, could you let me pass?'}
+SAY = {'start': 'On my way.', 'arrived': "I'm here.", 'failed': "I couldn't get there."}
 LAN_DEV = 'eth0'        # the perception computer's wire to the motion computer
 DEADMAN_S = 0.3        # drive halts this long after the last stick message
 FORWARD_STOP_M = 0.6   # camera clearance (from body centre), as walk()

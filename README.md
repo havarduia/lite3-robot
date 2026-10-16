@@ -770,7 +770,7 @@ The same from the command line: `python3 -m robot.lite3 floors`,
 
 ---
 
-### 7.6 What he says on a map goal, and closed doors
+### 7.6 What he says on a map goal
 
 A goal pressed on the panel's map (`go_point`) is spoken aloud in the
 persona's voice (`talk.say`: Gemini's voice, Piper offline), from fixed
@@ -778,31 +778,12 @@ lines in `robot/hmi.py`'s `SAY`: "On my way." once a route is found,
 "I'm here." on arrival, "I couldn't get there." when it fails or is
 refused, nothing when you cancel it.
 
-**A closed door** (`robot/doorway.py`, `nav._watched_goal`). About four
-times a second while Nav2 drives, the route he set off on is looked along
-for 4 m: a point the global costmap now blocks (99 or more: his centre may
-not go there) is something new in the way. If the floor map has wall within
-0.8 m on both sides of the route there, or within 0.5 m of there along it
-(a shut door's inflation blocks the route before the door itself), it is a
-door. Nav2 would plan another way at once, so the goal is stopped first,
-and he asks: "The door is closed. Could you open it for me, please?" When
-the costmap clears there ("Thank you!") the goal goes out again. After
-15 s he asks again; after 30 s he goes another way if the planner finds one
-("I'll go another way.", and that door is not stopped at again); if there
-is none he waits on and asks every 30 s, until the goal's time (5 min) or
-Cancel. Cancel and E-STOP end the wait like a goal.
-
-**Anything else in the way** (a person, a box: the map is open on at
-least one side there) leaves Nav2 to it: RPP stops in front of it and the
-planner routes round it. Once it has held him still for 2 s within 1.5 m
-he says "Excuse me, could you let me pass?", once until it clears.
-
-A door is only known from the map: one open while mapping and drawn as a
-gap counts (the lab door does), a doorway in a wide-open hall does not. A
-person standing in a doorway is asked to open the door. Checked with no
-robot in `demos/check_motion.py` (opened, round another way, no other way
-and cancelled, something in the open) and `python3 -m robot.doorway check`;
-not yet on the robot.
+Anything in the way, a shut door included, is left to Nav2: RPP stops in
+front of it and the planner routes round it, or the goal fails. Until
+2026-10-16 he also stopped at doors the costmap newly marked shut and asked
+for them to be opened, and asked people to let him pass (`robot/doorway.py`,
+removed: it cancelled and resent Nav2's goal mid-route, which seemed to confuse Nav2,
+and took people and stale marks for doors; it is in git history).
 
 ## 8. Finding and following people
 
@@ -1081,13 +1062,15 @@ CDN: even its typeface, B612, is embedded) with:
   running **only while someone is watching** (see "Cameras" below);
 - stand/sit, Nav2 on/off, camera/voa on/off, "goto N m";
 - the **floor map** (§7.5): pick a floor and Load, tell him where he is
-  (I am here: press the spot, drag the way he faces), then press anywhere
-  on the map and confirm "Go here" to send him there. It shows him, the
+  (I am here, then press the spot), then press anywhere on the map to put
+  the goal there and confirm "Go here". The goal is a ring to drag and a
+  knob to turn; under the map are its x, y and a heading switch ("Any way"
+  sends no heading, "Facing" sends the fader's), and with the map focused
+  arrows move it, [ ] turn it and Enter sends it. Pinch, the wheel or the
+  + − keys zoom (Fit, Him); zoomed in, a drag pans. It shows him, the
   saved places, the point he is going to and Nav2's route. The page gets
   the map as the PGM the map server reads (`/map/<floor>`) and paints it
-  itself. Not there yet: zoom (a press is only as fine as the picture; on
-  a phone about half a metre on the lab map), and a new goal while one is
-  under way (Cancel first);
+  itself. Not there yet: a new goal while one is under way (Cancel first);
 - a **hold-to-drive** joystick (and WASD) built on `steer()`: the page sends
   the stick ~10×/s and the robot halts 0.3 s after the last message (a
   "dead-man" switch: released, tab closed, Wi-Fi lost → stop). Forward stops
