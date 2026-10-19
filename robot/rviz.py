@@ -29,7 +29,9 @@ import time
 import urllib.request
 import xml.etree.ElementTree as ET
 
-ROBOT = 'ysc@lite3-perception'
+# ssh's way to the perception computer. Off Tailscale (handheld mode, on his wifi):
+# LITE3_ROBOT='-J ysc@192.168.2.1 ysc@192.168.1.103'
+ROBOT = os.environ.get('LITE3_ROBOT', 'ysc@lite3-perception').split()
 REMOTE = 'source ~/robot/env/lite3_env.sh && cd ~/robot && exec python3 -m robot.rviz --send '
 TOPICS = ['/joint_states', '/tf', '/tf_static', '/odom_fused']
 ODOM = '/odom_fused'    # becomes odom -> base_link here, with the height from height()
@@ -292,7 +294,7 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
         # ssh would otherwise sit on for many minutes.
         procs.append(subprocess.Popen(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=3',
-             '-o', 'ServerAliveCountMax=2', ROBOT, REMOTE + ' '.join(topics)],
+             '-o', 'ServerAliveCountMax=2', *ROBOT, REMOTE + ' '.join(topics)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE))
         link['ssh'] = procs[-1]
         return procs[-1]
@@ -304,7 +306,8 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
                 i, n = HEAD.unpack(read(ssh.stdout, HEAD.size))
                 yield i, read(ssh.stdout, n)
             except EOFError:
-                print('lost the robot end (is ~/robot pulled, the robot reachable?); retrying')
+                print('lost the robot end (ssh %s: run this on the laptop; is ~/robot pulled there, the robot reachable?); retrying'
+                      % ' '.join(ROBOT))
                 ssh.terminate()
                 procs.remove(ssh)
                 time.sleep(RETRY_S)

@@ -131,6 +131,8 @@ class FrontCamera(threading.Thread):
             finally:
                 proc.kill()
                 proc.wait()
+                # Forget the last frame: the next viewer would get it first, however old.
+                self.frames.put(None)
             time.sleep(1.0)
 
 

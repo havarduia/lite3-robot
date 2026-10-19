@@ -929,7 +929,7 @@ in the `audio` group there (done 2026-09-15); `ffmpeg` on the Jetson; Piper in
 for `play_url`, standalone `yt-dlp` and `deno` binaries in `~/.local/bin`;
 for Gemini, a key in `~/.gemini_key`, `websockets` 13.1 (the last release for
 Python 3.8) and internet. The robot has its own internet (eduroam via the
-motion computer). If it ever has none, run an HTTP CONNECT proxy on the
+Orin, see "Driving across eduroam access points"). If it ever has none, run an HTTP CONNECT proxy on the
 laptop, forward its port over SSH and set `TALK_PROXY=http://localhost:3128`.
 
 ### 9.2 `Speaker`: streaming, sentence by sentence
@@ -1112,22 +1112,45 @@ localhost for that.
 **Driving across eduroam access points.** Eduroam blocks devices from
 reaching each other directly (tested 2026-10-15: laptop and robot on the same
 subnet, no IPv4 or IPv6 reply), so the panel always goes through a Tailscale
-relay. When the motion computer's Wi-Fi changes access point it is back
-within about 1 s, but the campus network drops our connections and the
-perception computer's own cable link never changes, so its Tailscale
-noticed its relay was dead only after about 60 s (measured 2026-10-15). `env/roam-rebind.service`
-watches the motion computer's `iw event` and runs `tailscale debug rebind`
-the same second, which re-checks the relay within 3 s. Install it once with
-`sudo tailscale set --operator=ysc` and the commands in the file. Each change
-of access point still kicks the handheld off the robot's own Wi-Fi for about 5 s:
-it shares the one radio with eduroam.
+relay (DERP Amsterdam, ~45 ms; the robot's side of eduroam's NAT also varies
+its mapping per destination, so Tailscale cannot punch through). A laptop on
+**his own wifi** goes direct instead (3 ms, 2026-10-19): the motion computer
+routes it, also to the Orin's eduroam address.
+
+**Who is on eduroam.** Since 2026-10-19 only the **Orin**, on its own 5 GHz
+radio (RTL8822CE). `env/orin-nat.service` NATs the switch out over it, and
+the perception and motion computers route through it (default via
+192.168.1.5). The motion computer's one radio is left to the AP, which
+needs it: it can only use one channel at a time, so with eduroam on it the
+AP was pulled onto eduroam's 2.4 GHz ch 6, and moved every time eduroam
+changed access point (the handheld lost ~5 s each time). Now the AP stays
+on 5 GHz ch 36 (`wifi_mode.sh handheld`, but with internet and Tailscale;
+eduroam there has autoconnect off, so don't use `online`/`eduroam`). The
+switch, measured 2026-10-19:
+
+| | Orin (5 GHz ch 116) | Motion (2.4 GHz ch 6, shared with the AP) |
+|---|---|---|
+| down / up | ~20 / 27 Mbit/s | ~30 / 60-85 Mbit/s |
+| ping 1.1.1.1 (avg / max) | 7.4 / 8.4 ms | 11.2 / 78 ms |
+| Gemini Live, first sound | 0.7-0.8 s | 0.6-2.1 s |
+
+Less bandwidth (the Orin's uplink stays at 27 Mbit/s with one stream or
+four, and with its power saving off), but steady, which is what the drive
+pad and the voice need.
+
+When the Orin's Wi-Fi changes access point it is back within about 1 s,
+but the campus network drops our connections, and perception's and
+motion's cable links never change, so their Tailscale noticed its relay was
+dead only after about 60 s (measured 2026-10-15). `env/roam-rebind.service`
+watches the Orin's `iw event` and runs `tailscale debug rebind` on both the
+same second, which re-checks the relay within 3 s. Install it with the
+commands in the file.
 
 Not every change of access point is a quick hand-over. On 2026-10-15 the access point threw him off, he got back
 on 8 s later, but without a fresh DHCP lease, and the campus network
 blocked his IPv4 for 6 minutes, until `nmcli con up eduroam` by hand.
-`env/eduroam-watchdog.service` (on the MOTION computer) pings the eduroam
-gateway every 5 s and does that reconnect after 15 s without a reply. It
-stays idle while eduroam is off on purpose, as in `wifi_mode.sh handheld`.
+`env/eduroam-watchdog.service` (on the ORIN) pings the eduroam
+gateway every 5 s and does that reconnect after 15 s without a reply.
 
 **Him, in 3D.** A third monitor under Cameras: the robot model posed from
 his joint angles, on a floor grid he walks across, with the two sonar beams
@@ -1215,6 +1238,10 @@ debugging and capturing unknown codes only.
 
 Opens rviz2 with the Lite3 model moving its legs as the robot does. Close
 rviz (or Ctrl-C) to stop everything, including the robot end.
+Run it on the laptop, not on the robot: it reaches the robot with
+`ssh ysc@lite3-perception` (Tailscale). With no Tailscale (handheld mode,
+the laptop on his wifi) give it the hop through the motion computer:
+`LITE3_ROBOT='-J ysc@192.168.2.1 ysc@192.168.1.103' python3 -m robot.rviz nav`.
 
 **How.** The laptop starts `python3 -m robot.rviz --send ...` on the robot
 over ssh. That end subscribes to `/joint_states`, `/tf`, `/tf_static`, `/odom_fused` and

@@ -1,0 +1,26 @@
+# Install on the ORIN (root):
+#   sudo cp orin-nat.service /etc/systemd/system/ && sudo systemctl enable --now orin-nat
+# The Orin is the robot's way out to the internet: it alone is on eduroam (its own 5 GHz
+# radio), and the perception and motion computers route through it over the switch. That
+# leaves the motion computer's one radio to the AP, on 5 GHz ch 36 (README.md, Internet).
+# Forward rules go in DOCKER-USER: Docker owns FORWARD (policy DROP) and leaves that chain alone.
+[Unit]
+Description=NAT the robot's switch (192.168.1.0/24) out over eduroam (lite3_api README.md)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=LAN=eno1 WAN=wlP1p1s0 NET=192.168.1.0/24
+ExecStart=/bin/sh -c 'sysctl -qw net.ipv4.ip_forward=1; \
+  iptables -N DOCKER-USER 2>/dev/null; \
+  iptables -t nat -C POSTROUTING -s $NET -o $WAN -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s $NET -o $WAN -j MASQUERADE; \
+  iptables -C DOCKER-USER -i $WAN -o $LAN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i $WAN -o $LAN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; \
+  iptables -C DOCKER-USER -i $LAN -o $WAN -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i $LAN -o $WAN -j ACCEPT'
+ExecStop=/bin/sh -c 'iptables -t nat -D POSTROUTING -s $NET -o $WAN -j MASQUERADE; \
+  iptables -D DOCKER-USER -i $WAN -o $LAN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; \
+  iptables -D DOCKER-USER -i $LAN -o $WAN -j ACCEPT'
+
+[Install]
+WantedBy=multi-user.target
