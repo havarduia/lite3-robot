@@ -1149,8 +1149,17 @@ commands in the file.
 Not every change of access point is a quick hand-over. On 2026-10-15 the access point threw him off, he got back
 on 8 s later, but without a fresh DHCP lease, and the campus network
 blocked his IPv4 for 6 minutes, until `nmcli con up eduroam` by hand.
-`env/eduroam-watchdog.service` (on the ORIN) pings the eduroam
-gateway every 5 s and does that reconnect after 15 s without a reply.
+`env/eduroam-watchdog.sh` (a service on the ORIN) pings the eduroam
+gateway every 2 s and does that reconnect after 3 missed pings (~6-9 s).
+
+It also roams on purpose. On a test round on 2026-10-19 only 1 of 5 access
+point changes was a clean hand-over: the rest clung to the old access point
+until the gateway went quiet, then were down 13-35 s (the driver roams late,
+and wpa_supplicant's background scan runs every 30 s at best). Below -70 dBm
+the watchdog scans every 10 s and `wpa_cli roam`s to an eduroam access point
+8 dB stronger; that move takes ~1 s with no packets lost. The thresholds are
+at the top of the script. Power saving on the Orin's Wi-Fi is off
+(`802-11-wireless.powersave 2` on the eduroam connection).
 
 **Him, in 3D.** A third monitor under Cameras: the robot model posed from
 his joint angles, on a floor grid he walks across, with the two sonar beams
