@@ -3,213 +3,268 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#d5d8d4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#2a2f31" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
 <title>Lite3 control</title>
 <style>
-/* A pendant for a walking machine. Housing in control-cabinet light grey
-   (RAL 7035), dark glass for what he sees, and the machine-safety signal
-   colours kept for state only: nothing is yellow or red unless something is.
-   The emergency stop is the one exception, red on yellow as on any machine.
+/* An operator console. Slate surfaces, one blue for what you can press, and
+   the safety colours kept for state only: green running, amber attention,
+   red stopped or lost. The E-STOP keeps red on yellow, as on any machine.
+   The screens (depth fan, map, 3D view) stay dark in both themes.
    Set in B612, the face Airbus drew for cockpit displays: fixed-width
-   figures, so readouts do not jitter as they change. */
+   figures, so readouts do not jitter as they change.
+   The canvas code reads --glass, --on-glass, --trace, --dim and --yellow;
+   loadMap() parses --on-glass and --trace as #rrggbb, so keep them 6-digit hex. */
 :root {
-  color-scheme: light;
-  --housing: #d5d8d4; --plate: #e9ebe7; --field: #f3f5f1; --groove: #b1b6b0; --edge: #8f958f;
-  --ink: #24282a; --ink-2: #4b5152; --lit: #2a3033; --on-lit: #e3e6e1;
-  --glass: #2a3033; --on-glass: #e3e6e1; --trace: #c3ccc9; --dim: #76807e;
-  --yellow: #f2a900; --red: #c4161c; --red-deep: #8a0e13; --red-ink: #a01218; --green: #1f7a4d;
-  --knob: #e9ebe7; --knob-edge: #8f958f;
+  color-scheme: dark;
+  --bg: #0f172a; --card: #172033; --well: #1e293b; --line: #2c3a52; --line-2: #475569;
+  --ink: #f1f5f9; --ink-2: #a3b1c6;
+  --accent: #38bdf8; --on-accent: #0b1220; --accent-soft: #0c3550;
+  --ok: #22c55e; --warn: #f5b014; --bad: #ef4444; --bad-ink: #fca5a5;
+  --glass: #0b1220; --on-glass: #e2e8f0; --trace: #93a4ba; --dim: #4b5a70; --yellow: #f5b014;
+  --estop-ring: #f5b014; --estop: #dc2626; --estop-deep: #8f1414;
+  --radius: 12px;
   --f: "B612", "DIN Alternate", Bahnschrift, ui-sans-serif, system-ui, sans-serif;
 }
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    color-scheme: dark;
-    --housing: #2a2f31; --plate: #383e41; --field: #1f2325; --groove: #4a5154; --edge: #16191b;
-    --ink: #e4e7e2; --ink-2: #a5aca9; --lit: #e4e7e2; --on-lit: #24282a;
-    --glass: #16191b; --dim: #69736f;
-    --yellow: #ffb81c; --red: #d92b31; --red-ink: #ff9a9a; --green: #5cbd8a;
+    color-scheme: light;
+    --bg: #eef1f5; --card: #ffffff; --well: #e7ebf1; --line: #d5dce6; --line-2: #94a3b8;
+    --ink: #0f172a; --ink-2: #475569;
+    --accent: #0369a1; --on-accent: #ffffff; --accent-soft: #dbeefb;
+    --ok: #15803d; --warn: #b45309; --bad: #c81e1e; --bad-ink: #b91c1c;
   }
 }
 * { box-sizing: border-box; }
-html { scroll-padding-top: 130px; }
+[hidden] { display: none !important; }
 body {
-  margin: 0; background: var(--housing); color: var(--ink);
+  margin: 0; background: var(--bg); color: var(--ink);
   font: 400 15px/1.45 var(--f); word-spacing: -.06em; -webkit-tap-highlight-color: transparent;
 }
 h1, h2, p, dl, dd { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* --- the rail: who he is, how he is, and the stop -------------------------- */
-.rail { position: sticky; top: 0; z-index: 10; background: var(--housing); border-bottom: 1px solid var(--groove); }
-.rail .in {
-  max-width: 1320px; margin: 0 auto;
-  display: grid; align-items: center; column-gap: 28px; grid-template: "id vitals estop" / auto 1fr auto;
-  padding: 10px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+/* --- top bar: who, how he is, Cancel and the stop --------------------------- */
+.top {
+  position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
 }
-.rail .id { grid-area: id; display: flex; align-items: baseline; gap: 14px; padding-bottom: 10px; }
-h1 { font-size: 22px; line-height: 1; }
-.vitals { grid-area: vitals; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 26px; padding-bottom: 10px; font-weight: 700; }
+.top .in {
+  max-width: 1600px; margin: 0 auto; display: grid; align-items: center; gap: 8px 16px;
+  grid-template: "id chips act" / auto 1fr auto;
+  padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+}
+.id { grid-area: id; display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+h1 { font-size: 20px; line-height: 1; letter-spacing: .02em; }
+.chips { grid-area: chips; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 11px;
+  border-radius: 999px; background: var(--well); border: 1px solid var(--line);
+  font-size: 13px; font-weight: 700; white-space: nowrap;
+}
+.chip small { color: var(--ink-2); font-weight: 400; font-size: 12px; }
+.act { grid-area: act; display: flex; align-items: center; gap: 10px; }
+
+/* a lamp: a dot before the text. Green on, hollow off, amber busy, red bad */
 .lamp::before {
-  content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-  margin-right: 7px; background: var(--green);
+  content: ""; flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 7px; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
 }
+.chip.lamp::before, .lamp.chip::before { margin-right: 0; }
 .lamp.off::before { background: none; box-shadow: inset 0 0 0 2px var(--ink-2); }
-.lamp.busy::before { background: var(--yellow); }
-.lamp.bad::before { background: var(--red); }
+.lamp.busy::before { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent); }
+.lamp.bad::before { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .lamp.busy::before { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+}
+
 .bat {
-  display: inline-block; position: relative; width: 44px; height: 18px; margin-right: 12px; padding: 2px;
-  border: 2px solid var(--ink); border-radius: 3px; vertical-align: -3px;
+  display: inline-block; position: relative; width: 30px; height: 14px; padding: 2px;
+  border: 2px solid var(--ink-2); border-radius: 3px;
 }
-.bat::after {
-  content: ""; position: absolute; right: -6px; top: 3px; width: 3px; height: 8px;
-  background: var(--ink); border-radius: 0 2px 2px 0;
-}
-.bat i { display: block; height: 100%; width: 0; background: var(--ink); }
-.bat.warn i { background: var(--yellow); }
-.bat.bad i { background: var(--red); }
+.bat::after { content: ""; position: absolute; right: -5px; top: 2px; width: 3px; height: 6px; background: var(--ink-2); border-radius: 0 2px 2px 0; }
+.bat i { display: block; height: 100%; width: 0; background: var(--ok); border-radius: 1px; }
+.bat.warn i { background: var(--warn); }
+.bat.bad i { background: var(--bad); }
 
 #estop {
-  grid-area: estop; margin-bottom: 10px; padding: 5px 5px 8px; border: 0; border-radius: 8px;
-  background: var(--yellow); cursor: pointer; touch-action: manipulation;
+  padding: 4px; border: 0; border-radius: 999px; background: var(--estop-ring);
+  cursor: pointer; touch-action: manipulation;
 }
 #estop span {
-  display: block; height: 42px; padding: 0 20px; border-radius: 21px;
-  background: var(--red); color: #fff; font-weight: 700; font-size: 16px; line-height: 42px;
-  box-shadow: 0 3px 0 var(--red-deep);
+  display: block; min-width: 112px; height: 44px; padding: 0 22px; border-radius: 999px;
+  background: var(--estop); color: #fff; font-weight: 700; font-size: 16px; letter-spacing: .04em; line-height: 44px; text-align: center;
+  box-shadow: 0 3px 0 var(--estop-deep);
 }
-#estop:active span, .estopped #estop span { transform: translateY(3px); box-shadow: none; background: var(--red-deep); }
-#estop:focus-visible { outline-offset: 3px; }
+#estop:active span, .estopped #estop span { transform: translateY(3px); box-shadow: none; background: var(--estop-deep); }
+#estop:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .offline #estop { opacity: .45; }
 
-.notice { padding: 9px max(16px, calc((100% - 1320px) / 2 + 16px)); font-weight: 700; }
-.notice.bad { background: var(--red); color: #fff; }
-.notice.warn, .notice.stop { background: var(--yellow); color: #24282a; }
-.notice.stop { position: relative; padding-left: calc(max(16px, (100% - 1320px) / 2 + 16px) + 34px); }
+.notice { padding: 10px max(16px, calc((100% - 1600px) / 2 + 16px)); font-weight: 700; }
+.notice.bad { background: var(--bad); color: #fff; }
+.notice.warn, .notice.stop { background: var(--warn); color: #111827; }
+.notice.stop { position: relative; padding-left: calc(max(16px, (100% - 1600px) / 2 + 16px) + 34px); }
 .notice.stop::before {
   content: ""; position: absolute; inset: 0 auto 0 0; width: 34px;
-  background: repeating-linear-gradient(-45deg, #24282a 0 7px, transparent 7px 14px);
+  background: repeating-linear-gradient(-45deg, #111827 0 7px, transparent 7px 14px);
 }
 
-/* --- the faceplate: groups divided by grooves, not boxed into cards -------- */
-main {
-  max-width: 1320px; margin: -1px auto 0; padding: 0 16px 48px;
-  display: grid; column-gap: 40px; align-items: start;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr);
-  grid-template-rows: auto auto auto auto 1fr;
-  grid-template-areas: "ahead drive nav" "ahead drive sys" "map map talk" "cams cams talk" "log log talk";
+/* --- panes ------------------------------------------------------------------ */
+main { max-width: 1600px; margin: 0 auto; padding: 16px 16px 48px; }
+.offline main { opacity: .55; }
+.col { display: contents; }
+.pane {
+  min-width: 0; margin-bottom: 16px; padding: 14px 16px 16px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
 }
-.offline main { opacity: .5; }
-section { min-width: 0; padding: 6px 0 24px; border-top: 1px solid var(--groove); }
-.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; }
-h2 { font-size: 16px; }
-.note { margin-top: 10px; max-width: 64ch; color: var(--ink-2); font-size: 13px; }
-.glass { background: var(--glass); color: var(--on-glass); border-radius: 4px; overflow: hidden; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; margin-bottom: 10px; flex-wrap: wrap; }
+.head .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+h2 { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.sub { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sub h3 { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.glass { background: var(--glass); color: var(--on-glass); border-radius: 8px; overflow: hidden; }
 
-#scan { display: block; width: 100%; aspect-ratio: 4 / 3; }
-#floormap { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 72vh; touch-action: pan-y; cursor: crosshair; }
+/* help: a "?" that opens the long explanation in place */
+.help { position: relative; }
+.help summary {
+  list-style: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--line-2); color: var(--ink-2); font-weight: 700; font-size: 14px; cursor: pointer;
+}
+.help summary::-webkit-details-marker { display: none; }
+.help[open] summary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.help p {
+  position: absolute; right: 0; top: 40px; z-index: 5; width: min(360px, calc(100vw - 48px));
+  padding: 12px 14px; background: var(--well); border: 1px solid var(--line-2); border-radius: 10px;
+  color: var(--ink); font-size: 13px; line-height: 1.5; box-shadow: 0 10px 30px rgb(0 0 0 / .35);
+}
+.help-inline { margin-top: 10px; color: var(--ink-2); font-size: 13px; max-width: 64ch; }
+
+#scan { display: block; width: 100%; aspect-ratio: 16 / 10; }
+#floormap { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 70vh; touch-action: pan-y; cursor: crosshair; }
 #floormap.grab { touch-action: none; }      /* zoomed in or placing: a finger pans or drags, the page does not scroll */
 #floormap.panning { cursor: grabbing; }
 .mapglass { position: relative; }
 .mapkeys { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
-.mapkeys .key { min-width: 44px; padding: 0 10px; font-size: 17px; background: var(--glass); color: var(--on-glass); border-color: var(--dim); box-shadow: none; }
+.mapkeys .key { min-width: 44px; padding: 0 10px; font-size: 17px; background: rgb(15 23 42 / .8); color: var(--on-glass); border-color: var(--dim); }
 .mapkeys .key:disabled { opacity: .4; cursor: default; }
 #map .line { margin-top: 12px; }
-#map-hint { flex: 1; min-width: 12em; color: var(--ink-2); }
+#map-hint { flex: 1; min-width: 12em; color: var(--ink-2); font-size: 14px; }
 #map-pick input[type=number] { width: 5.4em; }
 #map-pick .face { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 200px; max-width: 340px; }
 #map-pick .push { margin-left: auto; display: inline-flex; gap: 8px; }
-#map details { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--groove); }
-#map summary { min-height: 44px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
-.readouts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 12px; }
-.readouts div { display: flex; align-items: baseline; gap: 8px; }
-.readouts dt { color: var(--ink-2); font-size: 13px; }
-.readouts dd { font-weight: 700; }
-.readouts dd.warn { padding: 0 5px; border-radius: 2px; background: var(--yellow); color: #24282a; }
+#map details.rec { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+#map details.rec summary { min-height: 44px; display: flex; align-items: center; font-weight: 700; cursor: pointer; color: var(--ink-2); }
 
-/* --- keys: one hard edge, and they travel when pressed --------------------- */
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.readouts div { padding: 8px 10px; background: var(--well); border-radius: 8px; }
+.readouts dt { color: var(--ink-2); font-size: 12px; }
+.readouts dd { font-weight: 700; font-size: 15px; }
+.readouts dd.warn { color: var(--warn); }
+
+/* --- buttons ------------------------------------------------------------------ */
 .key {
   min-height: 44px; padding: 0 16px; font-weight: 700;
-  background: var(--plate); border: 1px solid var(--edge); border-radius: 5px; box-shadow: 0 2px 0 var(--edge);
+  background: var(--well); border: 1px solid var(--line-2); border-radius: 8px;
   cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none;
 }
-@media (hover: hover) { .key:hover { border-color: var(--ink); } .monitor .key:hover { border-color: var(--on-glass); } }
-.key:active, .key[aria-pressed="true"] { transform: translateY(2px); box-shadow: none; }
-.key[aria-pressed="true"], .key.go { background: var(--lit); color: var(--on-lit); border-color: var(--lit); }
+@media (hover: hover) { .key:hover { border-color: var(--accent); } }
+.key:active { transform: translateY(1px); }
+.key.go { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.key[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
+.key.wide { flex: 1; }
+.cancel { background: #f5b014; color: #111827; border-color: #f5b014; }
+
 /* a two-position selector: the side that is down is where he is now */
-.sel { display: inline-flex; }
-.sel .key { border-radius: 0; min-width: 64px; }
-.sel .key + .key { margin-left: -1px; }
-.sel .key:first-child { border-radius: 5px 0 0 5px; }
-.sel .key:last-child { border-radius: 0 5px 5px 0; }
+.sel { display: inline-flex; padding: 3px; background: var(--well); border: 1px solid var(--line); border-radius: 10px; }
+.sel .key { min-height: 38px; min-width: 64px; border: 0; background: none; border-radius: 7px; }
+.sel .key[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+/* an on/off switch: the state is the switch itself */
 .rows > div {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 58px; border-bottom: 1px solid var(--groove);
+  min-height: 56px; border-bottom: 1px solid var(--line);
 }
 .rows > div:last-child { border-bottom: 0; }
+.rows .what { display: flex; flex-direction: column; }
+.rows .what small { color: var(--ink-2); font-size: 12px; }
+.switch {
+  flex: none; position: relative; width: 56px; height: 32px; padding: 0; border-radius: 999px;
+  background: var(--well); border: 1px solid var(--line-2); cursor: pointer; touch-action: manipulation;
+}
+.switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--ink-2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .key, .switch { transition: background-color .15s, border-color .15s, color .15s; }
+  .switch::after { transition: transform .15s, background-color .15s; }
+}
+.switch[aria-checked="true"] { background: var(--ok); border-color: var(--ok); }
+.switch[aria-checked="true"]::after { transform: translateX(24px); background: #fff; }
+.switch[aria-checked="mixed"]::after { transform: translateX(12px); }
+.switch::before { content: ""; position: absolute; inset: -7px -2px; }    /* 44 px to press */
 
 input[type=number], input[type=text], select, textarea {
-  min-height: 44px; padding: 9px 10px; background: var(--field);
-  border: 1px solid var(--groove); border-radius: 3px;
+  min-height: 44px; padding: 9px 10px; background: var(--well);
+  border: 1px solid var(--line-2); border-radius: 8px;
 }
+select { min-width: 9em; }
 input[type=number] { width: 4.8em; font-weight: 700; text-align: right; }
 #map-name { width: 9em; }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .unit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.line label { min-width: 5.5em; }
+.line label { min-width: 5.5em; color: var(--ink-2); }
 
 /* faders */
 input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 110px; height: 44px; margin: 0; background: none; cursor: pointer; }
-input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--groove); }
-input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--groove); }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--line-2); }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--line-2); }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
 input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 20px; height: 32px; margin-top: -14px; border-radius: 4px;
-  background: linear-gradient(var(--knob-edge), var(--knob-edge)) center / 12px 2px no-repeat var(--knob);
-  border: 1px solid var(--knob-edge); box-shadow: 0 2px 0 var(--knob-edge);
+  -webkit-appearance: none; width: 24px; height: 24px; margin-top: -9px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--card);
 }
-input[type=range]::-moz-range-thumb {
-  width: 18px; height: 30px; border-radius: 4px;
-  background: linear-gradient(var(--knob-edge), var(--knob-edge)) center / 12px 2px no-repeat var(--knob);
-  border: 1px solid var(--knob-edge); box-shadow: 0 2px 0 var(--knob-edge);
-}
+input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--card); }
 output { min-width: 4.6em; font-weight: 700; text-align: right; }
 
-/* --- the stick ------------------------------------------------------------- */
-.stick { display: grid; justify-items: center; gap: 14px; }
+/* --- the stick ----------------------------------------------------------------- */
+.stick { display: grid; justify-items: center; gap: 12px; }
 #pad {
-  position: relative; width: min(248px, 68vw); aspect-ratio: 1; border-radius: 50%;
+  position: relative; width: min(240px, 66vw); aspect-ratio: 1; border-radius: 50%;
   background:
-    linear-gradient(var(--dim), var(--dim)) center / 1px 82% no-repeat,
-    linear-gradient(var(--dim), var(--dim)) center / 82% 1px no-repeat, var(--glass);
+    radial-gradient(circle, transparent 0 34%, color-mix(in srgb, var(--dim) 40%, transparent) 34% calc(34% + 1px), transparent calc(34% + 1px)),
+    linear-gradient(var(--dim), var(--dim)) center / 1px 84% no-repeat,
+    linear-gradient(var(--dim), var(--dim)) center / 84% 1px no-repeat, var(--glass);
+  border: 1px solid var(--line);
   touch-action: none; -webkit-user-select: none; user-select: none; cursor: grab;
 }
 #pad .knob {
   position: absolute; left: calc(50% - 32px); top: calc(50% - 32px); width: 64px; height: 64px;
   border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, var(--knob-edge) 0 5px, var(--knob) 6px);
-  box-shadow: 0 3px 0 var(--knob-edge);
+  background: radial-gradient(circle at 50% 40%, #f8fafc, #cbd5e1 70%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / .45);
 }
-#pad.active { cursor: grabbing; }
-#pad.active .knob { box-shadow: 0 0 0 4px var(--yellow); }
+#pad.active { cursor: grabbing; border-color: var(--accent); }
+#pad.active .knob { box-shadow: 0 0 0 4px var(--accent), 0 4px 12px rgb(0 0 0 / .45); }
 @media (prefers-reduced-motion: no-preference) {
   #pad:not(.active) .knob { transition: left .12s ease-out, top .12s ease-out; }
 }
 #drivestate { min-height: 1.5em; color: var(--ink-2); font-size: 13px; text-align: center; }
-#drivestate.on, #drivestate.warn { color: var(--ink); font-size: 15px; font-weight: 700; }
-#drivestate.warn { padding: 0 8px; border-radius: 2px; background: var(--yellow); color: #24282a; }
+#drivestate.on { color: var(--ok); font-weight: 700; }
+#drivestate.warn { padding: 2px 10px; border-radius: 6px; background: var(--warn); color: #111827; font-weight: 700; }
 .stick .line { width: 100%; }
 
-/* --- monitors: a dark bar that opens into the picture ---------------------- */
-.monitors { display: grid; gap: 14px; align-items: start; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-.monitor .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 7px 7px 14px; }
-.monitor .key { min-height: 40px; background: none; color: inherit; border-color: var(--dim); box-shadow: none; }
-.cam { display: grid; place-items: center; aspect-ratio: 16 / 9; background: #000; }
+/* --- cameras ----------------------------------------------------------------- */
+.monitors { display: grid; gap: 12px; align-items: start; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.monitor .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 6px 6px 14px; font-size: 14px; }
+.monitor .key { min-height: 40px; background: none; color: inherit; border-color: var(--dim); }
+.cam { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; background: #000; }
 .cam:not(.on) { display: none; }
 .cam img, .cam video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .cam .off { color: var(--trace); font-size: 13px; }
-.cam { position: relative; }
-#who { position: absolute; border: 2px solid var(--yellow); pointer-events: none; }
+#who { position: absolute; border: 2px solid var(--yellow); border-radius: 3px; pointer-events: none; }
 #cam-model { aspect-ratio: 4 / 3; background: var(--glass); cursor: grab; }
 @media (min-width: 681px) {     /* room to look at him: the open model takes the whole row */
   .monitor:has(#cam-model.on) { grid-column: 1 / -1; }
@@ -220,28 +275,57 @@ output { min-width: 4.6em; font-weight: 700; text-align: right; }
 
 /* --- talk and log ---------------------------------------------------------- */
 textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize: vertical; }
-#chat { display: grid; gap: 8px; max-height: 280px; margin-top: 16px; overflow: auto; overscroll-behavior: contain; }
-#chat div { display: grid; grid-template-columns: 2.6em 1fr; gap: 10px; }
-#chat b { color: var(--ink-2); font-weight: 400; font-size: 13px; line-height: 1.7; }
-#chat .you { color: var(--ink-2); }
-#log { max-height: 300px; overflow: auto; overscroll-behavior: contain; font-size: 13px; line-height: 1.55; }
-#log div { display: grid; grid-template-columns: 5.6em 1fr; gap: 10px; padding-left: 8px; border-left: 4px solid transparent; }
+#chat { display: grid; gap: 8px; max-height: 300px; margin-top: 14px; overflow: auto; overscroll-behavior: contain; }
+#chat div { padding: 8px 12px; border-radius: 10px; background: var(--well); max-width: 92%; }
+#chat div.you { justify-self: end; background: var(--accent-soft); }
+#chat b { display: block; color: var(--ink-2); font-weight: 400; font-size: 12px; }
+#log { max-height: 320px; overflow: auto; overscroll-behavior: contain; font-size: 13px; line-height: 1.55; }
+#log div { display: grid; grid-template-columns: 5.6em 1fr; gap: 10px; padding: 2px 0 2px 8px; border-left: 3px solid transparent; }
 #log time { color: var(--ink-2); }
-#log .warn { border-left-color: var(--yellow); }
-#log .error { border-left-color: var(--red); color: var(--red-ink); }
+#log .warn { border-left-color: var(--warn); }
+#log .error { border-left-color: var(--bad); color: var(--bad-ink); }
 
-#ahead { grid-area: ahead; } #drive { grid-area: drive; } #nav { grid-area: nav; } #sys { grid-area: sys; } #map { grid-area: map; }
-#cams { grid-area: cams; } #talk { grid-area: talk; } #logs { grid-area: log; }
-@media (max-width: 1199px) {
-  main {
-    column-gap: 32px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "ahead drive" "map map" "cams cams" "nav sys" "talk log";
+/* --- phone and tablet: one tab at a time, tabs at the bottom ------------------ */
+.tabs { display: none; }
+@media (max-width: 1099px) {
+  main { display: flex; flex-direction: column; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  #drive { order: -1; }      /* the stick first: it is what the tab is for */
+  body:not([data-tab="drive"]) [data-tab="drive"],
+  body:not([data-tab="map"]) [data-tab="map"],
+  body:not([data-tab="cams"]) [data-tab="cams"],
+  body:not([data-tab="talk"]) [data-tab="talk"],
+  body:not([data-tab="sys"]) [data-tab="sys"] { display: none; }
+  .tabs {
+    position: fixed; inset: auto 0 0 0; z-index: 20; display: grid; grid-template-columns: repeat(5, 1fr);
+    padding: 6px max(6px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--card) 94%, transparent); border-top: 1px solid var(--line);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .tabs button {
+    display: grid; justify-items: center; gap: 3px; min-height: 52px; padding: 6px 0 4px; border: 0; border-radius: 10px;
+    background: none; color: var(--ink-2); font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .tabs svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .tabs button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+  /* on a tablet the drive tab can sit side by side */
+  @media (min-width: 720px) {
+    body[data-tab="drive"] .col-a { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; align-items: start; }
+    body[data-tab="drive"] #nav { grid-column: 1 / -1; }
   }
 }
 @media (max-width: 680px) {
-  .rail .in { column-gap: 12px; grid-template: "id estop" "vitals vitals" / 1fr auto; }
-  .vitals { gap: 4px 18px; }
-  main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ahead" "drive" "map" "cams" "nav" "sys" "talk" "log"; }
+  .top .in { grid-template: "id act" "chips chips" / 1fr auto; padding-top: 8px; padding-bottom: 8px; }
+  .chip { min-height: 28px; padding: 0 9px; font-size: 12px; }
+  #estop span { min-width: 96px; padding: 0 16px; }
+  main { padding-left: 10px; padding-right: 10px; }
+  .pane { padding: 12px; }
+}
+
+/* --- laptop: everything at once, three columns -------------------------------- */
+@media (min-width: 1100px) {
+  main { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(330px, 380px) minmax(0, 1fr) minmax(300px, 380px); }
+  .col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+  .pane { margin-bottom: 0; }
 }
 
 /* B612, (c) 2012 The B612 Project Authors (github.com/polarsys/b612), SIL Open
@@ -251,187 +335,210 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
 @font-face { font-family: "B612"; font-weight: 700; src: url(data:font/woff2;base64,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) format("woff2"); }
 </style>
 </head>
-<body class="offline">
-<header class="rail">
+<body class="offline" data-tab="drive">
+<header class="top">
   <div class="in">
-  <div class="id"><h1>Lite3</h1><span id="conn" class="lamp off">Connecting</span></div>
-  <div class="vitals">
-    <span><span class="bat" id="bat" aria-hidden="true"><i></i></span><span id="s-batt" aria-label="battery">–</span></span>
-    <span id="s-post" aria-label="posture">–</span>
-    <span id="busy" class="lamp off">Idle</span>
-  </div>
-  <button id="estop" title="Cancel everything and halt (Space)"><span>E-STOP</span></button>
+    <div class="id"><h1>Lite3</h1><span id="conn" class="lamp off">Connecting</span></div>
+    <div class="chips">
+      <span class="chip" title="Battery"><span class="bat" id="bat" aria-hidden="true"><i></i></span><span id="s-batt" aria-label="battery">–</span></span>
+      <span class="chip" id="s-post" aria-label="posture">–</span>
+      <span class="chip lamp off" id="busy">Idle</span>
+      <span class="chip lamp off" id="t-nav">Nav2 –</span>
+      <span class="chip lamp off" id="s-hb" title="While the heartbeat is on he obeys this panel with no handheld switched on">Heartbeat –</span>
+    </div>
+    <div class="act">
+      <button class="key cancel" id="cancel" title="End the move under way; Nav2 keeps running" hidden>Cancel</button>
+      <button id="estop" title="Cancel everything and halt (Space)"><span>E-STOP</span></button>
+    </div>
   </div>
   <p id="notice" class="notice" role="alert" hidden></p>
 </header>
 
 <main>
-  <section id="ahead">
-    <div class="head"><h2>Ahead of him</h2></div>
-    <div class="glass"><canvas id="scan" aria-label="depth scan, top-down"></canvas></div>
-    <dl class="readouts">
-      <div><dt>Sonar front</dt><dd id="s-sf">–</dd></div>
-      <div><dt>rear</dt><dd id="s-sr">–</dd></div>
-      <div><dt>Roll</dt><dd id="s-roll">–</dd></div>
-      <div><dt>Pitch</dt><dd id="s-pitch">–</dd></div>
-      <div><dt>Position</dt><dd id="s-pose">–</dd></div>
-      <div><dt>Heading</dt><dd id="s-yaw">–</dd></div>
-    </dl>
-    <p class="note">The nearest obstacle in each 5° of the depth camera's view, seen from above. Driving forward stops at the dashed line, 0.6 m out.</p>
-  </section>
-
-  <section id="drive">
-    <div class="head"><h2>Drive</h2>
-      <div class="sel">
-        <button class="key" data-cmd="sit" id="k-sit">Sit</button>
-        <button class="key" data-cmd="stand" id="k-stand">Stand</button>
+  <div class="col col-a">
+    <section class="pane" id="ahead" data-tab="drive">
+      <div class="head"><h2>Ahead of him</h2>
+        <details class="help"><summary aria-label="About this view">?</summary>
+          <p>The nearest obstacle in each 5° of the depth camera's view, seen from above. Driving forward stops at the dashed line, 0.6 m out.</p></details>
       </div>
-    </div>
-    <div class="stick">
-      <div id="pad" aria-label="drive joystick"><div class="knob"></div></div>
-      <div id="drivestate"></div>
+      <div class="glass"><canvas id="scan" aria-label="depth scan, top-down"></canvas></div>
+      <dl class="readouts">
+        <div><dt>Sonar front</dt><dd id="s-sf">–</dd></div>
+        <div><dt>Sonar rear</dt><dd id="s-sr">–</dd></div>
+        <div><dt>Position</dt><dd id="s-pose">–</dd></div>
+        <div><dt>Roll</dt><dd id="s-roll">–</dd></div>
+        <div><dt>Pitch</dt><dd id="s-pitch">–</dd></div>
+        <div><dt>Heading</dt><dd id="s-yaw">–</dd></div>
+      </dl>
+    </section>
+
+    <section class="pane" id="drive" data-tab="drive">
+      <div class="head"><h2>Drive</h2>
+        <div class="tools">
+          <div class="sel" role="group" aria-label="posture">
+            <button class="key" data-cmd="sit" id="k-sit">Sit</button>
+            <button class="key" data-cmd="stand" id="k-stand">Stand</button>
+          </div>
+          <details class="help"><summary aria-label="About driving">?</summary>
+            <p>He moves only while you hold the stick (or WASD / arrow keys). Space is E-STOP. Top speed also sets how fast he walks up to or follows a person; a Go is at Nav2's own speed. Backing up stops when the rear sonar reads under 0.5 m.</p></details>
+        </div>
+      </div>
+      <div class="stick">
+        <div id="pad" aria-label="drive joystick"><div class="knob"></div></div>
+        <div id="drivestate"></div>
+        <div class="line">
+          <label for="speed">Top speed</label>
+          <input id="speed" type="range" min="0.05" max="0.5" step="0.05" value="0.2">
+          <output id="speed-v" for="speed">0.20 m/s</output>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane" id="nav" data-tab="drive">
+      <div class="head"><h2>Go</h2>
+        <details class="help"><summary aria-label="About Go">?</summary>
+          <p>Go: Nav2 plans a path round obstacles (and is started if it is off); a positive turn is to the left. Walk up stops 0.6 m short of the person he sees. Follow keeps that distance for <span id="follow-s">30</span> s, then press it again; with Nav2 on it goes round what is between you. Both use the top speed, turn person detection on, stop for anything in the way, and give up after 5 s without seeing anyone. Cancel sits in the top bar.</p></details>
+      </div>
       <div class="line">
-        <label for="speed">Top speed</label>
-        <input id="speed" type="range" min="0.05" max="0.5" step="0.05" value="0.2">
-        <output id="speed-v" for="speed">0.20 m/s</output>
+        <span class="unit"><input id="goto-m" type="number" step="0.1" value="1.5" aria-label="metres ahead"> m ahead</span>
+        <span class="unit">then turn <input id="goto-d" type="number" step="15" value="0" aria-label="final turn in degrees, left is positive"> °</span>
+        <button class="key go" id="goto">Go</button>
       </div>
-    </div>
-    <p class="note">He moves only while you hold. Top speed also sets how fast he walks up to or follows a person; a Go is at Nav2's own speed. Backing up stops when the rear sonar reads under 0.5 m.</p>
-  </section>
-
-  <section id="nav">
-    <div class="head"><h2>Navigate</h2><button class="key" id="cancel" hidden>Cancel</button></div>
-    <div class="line">
-      Walk <span class="unit"><input id="goto-m" type="number" step="0.1" value="1.5" aria-label="metres ahead"> m</span> ahead, then turn
-      <span class="unit"><input id="goto-d" type="number" step="15" value="0" aria-label="final turn in degrees, left is positive"> °</span>
-      <button class="key go" id="goto">Go</button>
-    </div>
-    <p class="note">Nav2 plans a path around obstacles, and is started if it is off. A positive turn is to the left. Cancel stops him and leaves Nav2 running.</p>
-    <div class="line">
-      To the person he sees
-      <button class="key go" data-cmd="approach" data-speed>Walk up</button>
-      <button class="key" data-cmd="follow" data-speed>Follow</button>
-    </div>
-    <p class="note">Walk up stops 0.6 m short of them. With Nav2 on, Follow has Nav2 take him round what is between you, and comes straight at you the rest of the time; with it off he only comes straight, and stops for anything in the way. Follow keeps that distance for <span id="follow-s">30</span> s, then press it again. Both go at the top speed set under Drive as it is when pressed, turn person detection on, stop for anything the depth camera sees in the way, turn after someone who walks out of his view to one side, and give up when he has not seen anyone for 5 s.</p>
-  </section>
-
-  <section id="sys">
-    <div class="head"><h2>Systems</h2></div>
-    <div class="rows">
-      <div>Nav2 <span class="sel">
-        <button class="key" data-cmd="nav" data-on="0" id="k-nav-0">Off</button>
-        <button class="key" data-cmd="nav" data-on="1" id="k-nav-1">On</button></span></div>
-      <div>Depth camera <span class="sel">
-        <button class="key" data-cmd="camera" data-on="0" id="k-camera-0">Off</button>
-        <button class="key" data-cmd="camera" data-on="1" id="k-camera-1">On</button></span></div>
-      <div>Obstacle avoider (VOA) <span class="sel">
-        <button class="key" data-cmd="voa" data-on="0" id="k-voa-0">Off</button>
-        <button class="key" data-cmd="voa" data-on="1" id="k-voa-1">On</button></span></div>
-      <div title="His built-in detector. This switch only looks: Walk up and Follow are under Navigate">Person detection <span id="s-who" class="lamp off">–</span> <span class="sel">
-        <button class="key" data-cmd="person" data-on="0" id="k-person-0">Off</button>
-        <button class="key" data-cmd="person" data-on="1" id="k-person-1">On</button></span></div>
-      <div title="While it is on he obeys this panel with no handheld switched on">Heartbeat <span id="s-hb" class="lamp off">–</span></div>
-    </div>
-  </section>
-
-  <section id="cams">
-    <div class="head"><h2>Cameras</h2></div>
-    <div class="monitors">
-      <div class="monitor glass">
-        <div class="bar">Front wide-angle <button class="key" data-cam="front">Show</button></div>
-        <div class="cam" id="cam-front"><div id="who" hidden></div></div>
+      <div class="sub">
+        <h3>The person he sees</h3>
+        <div class="line">
+          <button class="key go wide" data-cmd="approach" data-speed>Walk up</button>
+          <button class="key wide" data-cmd="follow" data-speed>Follow</button>
+        </div>
       </div>
-      <div class="monitor glass">
-        <div class="bar">RealSense colour <button class="key" data-cam="realsense">Show</button></div>
-        <div class="cam" id="cam-realsense"></div>
-      </div>
-      <div class="monitor glass">
-        <div class="bar">Him, in 3D <button class="key" data-cam="model">Show</button></div>
-        <div class="cam" id="cam-model" title="Drag to look around him, scroll to move closer"></div>
-      </div>
-    </div>
-  </section>
+    </section>
+  </div>
 
-  <section id="talk">
-    <div class="head"><h2>Talk</h2></div>
-    <div class="line">
-      <label for="persona">Persona</label>
-      <select id="persona"></select>
-    </div>
-    <div class="line" title="The voice of his answers. Say it, and Look and comment, keep his own">
-      <label for="voice">Voice</label>
-      <select id="voice"></select>
-    </div>
-    <div class="line">
-      <label for="volume">Volume</label>
-      <input type="range" id="volume" min="0" max="100" step="5" value="100">
-      <output id="volume-v" for="volume">100 %</output>
-    </div>
-    <textarea id="talk-text" placeholder="Words for him to say, or a question" aria-label="text to say, or a question"></textarea>
-    <div class="line">
-      <button class="key" data-talk="say">Say it</button>
-      <button class="key go" data-talk="ask">Ask</button>
-      <button class="key" data-talk="look">Look and comment</button>
-    </div>
-    <div id="chat"></div>
-  </section>
-
-  <section id="logs">
-    <div class="head"><h2>Log</h2></div>
-    <div id="log"></div>
-  </section>
-  <section id="map">
-    <div class="head"><h2>Map</h2>
-      <span class="unit">
-        <span id="map-state" class="lamp off">No floor</span>
-        <select id="floor" aria-label="floor"></select>
-        <button class="key" id="floor-load">Load</button>
-      </span>
-    </div>
-    <div class="glass mapglass">
-      <canvas id="floormap" tabindex="0" aria-label="floor map: press a spot to put the goal there"></canvas>
-      <div class="mapkeys">
-        <button class="key" id="zoom-in" title="Zoom in (+)" aria-label="zoom in">+</button>
-        <button class="key" id="zoom-out" title="Zoom out (−)" aria-label="zoom out">−</button>
-        <button class="key" id="zoom-fit" title="The whole floor (0)">Fit</button>
-        <button class="key" id="zoom-him" title="Centre on him">Him</button>
+  <div class="col col-b">
+    <section class="pane" id="map" data-tab="map">
+      <div class="head"><h2>Map</h2>
+        <div class="tools">
+          <span id="map-state" class="lamp off">No floor</span>
+          <select id="floor" aria-label="floor"></select>
+          <button class="key" id="floor-load">Load</button>
+          <details class="help"><summary aria-label="About the map">?</summary>
+            <p>Load starts Nav2 on that floor's map; then press I am here and put him where he stands. A press on the map puts the goal there: drag its ring to move it and its knob to turn it, or type the numbers (with the map focused: arrows move it, [ ] turn it, Enter sends). Pinch, the wheel or + − zoom; drag to pan once zoomed in. Grey he has never seen counts as wall.</p></details>
+        </div>
       </div>
-    </div>
-    <div class="line">
-      <button class="key" id="map-here" aria-pressed="false">I am here</button>
-      <span id="map-hint"></span>
-    </div>
-    <div class="line" id="map-pick" hidden>
-      <label class="unit">x <input id="pick-x" type="number" step="0.05" inputmode="decimal" aria-label="goal x, metres"></label>
-      <label class="unit">y <input id="pick-y" type="number" step="0.05" inputmode="decimal" aria-label="goal y, metres"> m</label>
-      <span class="sel" role="group" aria-label="heading at the goal">
-        <button class="key" id="face-any" aria-pressed="true">Any way</button>
-        <button class="key" id="face-set" aria-pressed="false">Facing</button>
-      </span>
-      <span class="face">
-        <input id="pick-deg" type="range" min="-180" max="180" step="1" aria-label="heading at the goal, degrees">
-        <output id="pick-deg-out"></output>
-      </span>
-      <span class="push">
-        <button class="key" id="map-no">No</button>
-        <button class="key go" id="map-ok">Go here</button>
-      </span>
-    </div>
-    <details id="map-new">
-      <summary>Record a new map</summary>
+      <div class="glass mapglass">
+        <canvas id="floormap" tabindex="0" aria-label="floor map: press a spot to put the goal there"></canvas>
+        <div class="mapkeys">
+          <button class="key" id="zoom-in" title="Zoom in (+)" aria-label="zoom in">+</button>
+          <button class="key" id="zoom-out" title="Zoom out (−)" aria-label="zoom out">−</button>
+          <button class="key" id="zoom-fit" title="The whole floor (0)">Fit</button>
+          <button class="key" id="zoom-him" title="Centre on him">Him</button>
+        </div>
+      </div>
       <div class="line">
-        <input id="map-name" type="text" placeholder="new map" aria-label="name of the new map" autocapitalize="off" spellcheck="false">
-        <button class="key" id="map-record">Record map</button>
-        <span id="map-rec" class="lamp busy" hidden></span>
-        <button class="key" id="map-cancel" hidden>Cancel</button>
-        <button class="key go" id="map-save" hidden>Save</button>
+        <button class="key" id="map-here" aria-pressed="false">I am here</button>
+        <span id="map-hint"></span>
       </div>
-      <p class="note">Stand him still where the map should start (tape that spot and the way he faces: it becomes the floor's start), name it, press Record map, drive him round with the handheld, press Save. Saving takes a minute or two; the new floor then shows up under Load. Nav2 goes off while recording.</p>
-    </details>
-    <p class="note">Load starts Nav2 on that floor's map; then press I am here and put him where he stands. A press on the map puts the goal there: drag its ring to move it and its knob to turn it, or type the numbers (with the map focused: arrows move it, [ ] turn it, Enter sends). Pinch, the wheel or + − zoom; drag to pan once zoomed in. Grey he has never seen counts as wall. Cancel is under Navigate.</p>
-  </section>
+      <div class="line" id="map-pick" hidden>
+        <label class="unit">x <input id="pick-x" type="number" step="0.05" inputmode="decimal" aria-label="goal x, metres"></label>
+        <label class="unit">y <input id="pick-y" type="number" step="0.05" inputmode="decimal" aria-label="goal y, metres"> m</label>
+        <span class="sel" role="group" aria-label="heading at the goal">
+          <button class="key" id="face-any" aria-pressed="true">Any way</button>
+          <button class="key" id="face-set" aria-pressed="false">Facing</button>
+        </span>
+        <span class="face">
+          <input id="pick-deg" type="range" min="-180" max="180" step="1" aria-label="heading at the goal, degrees">
+          <output id="pick-deg-out"></output>
+        </span>
+        <span class="push">
+          <button class="key" id="map-no">No</button>
+          <button class="key go" id="map-ok">Go here</button>
+        </span>
+      </div>
+      <details id="map-new" class="rec">
+        <summary>Record a new map</summary>
+        <div class="line">
+          <input id="map-name" type="text" placeholder="new map" aria-label="name of the new map" autocapitalize="off" spellcheck="false">
+          <button class="key" id="map-record">Record map</button>
+          <span id="map-rec" class="lamp busy" hidden></span>
+          <button class="key" id="map-cancel" hidden>Cancel</button>
+          <button class="key go" id="map-save" hidden>Save</button>
+        </div>
+        <p class="help-inline">Stand him still where the map should start (tape that spot and the way he faces: it becomes the floor's start), name it, press Record map, drive him round with the handheld, press Save. Saving takes a minute or two; the new floor then shows up under Load. Nav2 goes off while recording.</p>
+      </details>
+    </section>
 
+    <section class="pane" id="cams" data-tab="cams">
+      <div class="head"><h2>Cameras</h2></div>
+      <div class="monitors">
+        <div class="monitor glass">
+          <div class="bar">Front wide-angle <button class="key" data-cam="front">Show</button></div>
+          <div class="cam" id="cam-front"><div id="who" hidden></div></div>
+        </div>
+        <div class="monitor glass">
+          <div class="bar">RealSense colour <button class="key" data-cam="realsense">Show</button></div>
+          <div class="cam" id="cam-realsense"></div>
+        </div>
+        <div class="monitor glass">
+          <div class="bar">Him, in 3D <button class="key" data-cam="model">Show</button></div>
+          <div class="cam" id="cam-model" title="Drag to look around him, scroll to move closer"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col col-c">
+    <section class="pane" id="sys" data-tab="sys">
+      <div class="head"><h2>Systems</h2></div>
+      <div class="rows">
+        <div><span class="what">Nav2<small>path planning</small></span>
+          <button class="switch" role="switch" aria-checked="false" aria-label="Nav2" data-cmd="nav" data-toggle id="k-nav"></button></div>
+        <div><span class="what">Depth camera<small>RealSense, obstacle stops</small></span>
+          <button class="switch" role="switch" aria-checked="false" aria-label="Depth camera" data-cmd="camera" data-toggle id="k-camera"></button></div>
+        <div><span class="what">Obstacle avoider<small>vendor VOA</small></span>
+          <button class="switch" role="switch" aria-checked="false" aria-label="Obstacle avoider" data-cmd="voa" data-toggle id="k-voa"></button></div>
+        <div><span class="what">Person detection<small><span id="s-who" class="lamp off">–</span></small></span>
+          <button class="switch" role="switch" aria-checked="false" aria-label="Person detection" data-cmd="person" data-toggle id="k-person" title="Only looks: Walk up and Follow are under Go"></button></div>
+      </div>
+    </section>
+
+    <section class="pane" id="talk" data-tab="talk">
+      <div class="head"><h2>Talk</h2></div>
+      <div class="line">
+        <label for="persona">Persona</label>
+        <select id="persona"></select>
+      </div>
+      <div class="line" title="The voice of his answers. Say it, and Look and comment, keep his own">
+        <label for="voice">Voice</label>
+        <select id="voice"></select>
+      </div>
+      <div class="line">
+        <label for="volume">Volume</label>
+        <input type="range" id="volume" min="0" max="100" step="5" value="100">
+        <output id="volume-v" for="volume">100 %</output>
+      </div>
+      <textarea id="talk-text" placeholder="Words for him to say, or a question" aria-label="text to say, or a question"></textarea>
+      <div class="line">
+        <button class="key go" data-talk="ask">Ask</button>
+        <button class="key" data-talk="say">Say it</button>
+        <button class="key" data-talk="look">Look and comment</button>
+      </div>
+      <div id="chat"></div>
+    </section>
+
+    <section class="pane" id="logs" data-tab="sys">
+      <div class="head"><h2>Log</h2></div>
+      <div id="log"></div>
+    </section>
+  </div>
 </main>
+
+<nav class="tabs" role="tablist" aria-label="Panel sections">
+  <button role="tab" data-go="drive" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Drive</button>
+  <button role="tab" data-go="map" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Map</button>
+  <button role="tab" data-go="cams" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3z"/></svg>Cameras</button>
+  <button role="tab" data-go="talk" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>Talk</button>
+  <button role="tab" data-go="sys" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>System</button>
+</nav>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -498,6 +605,8 @@ function notice() {
 
 const fmt = (v, d = 2) => (v === null || v === undefined) ? '–' : Number(v).toFixed(d).replace('-', '−');
 const lit = (id, on) => $(id).setAttribute('aria-pressed', !!on);
+// A switch shows what he reports: on, off, or (not known yet) half way.
+const sw = (id, on) => $(id).setAttribute('aria-checked', on === true ? 'true' : on === false ? 'false' : 'mixed');
 const SONAR_NO_ECHO = 4.4;      // he reports about 4.5 m when nothing comes back
 
 function renderStatus(s) {
@@ -510,14 +619,15 @@ function renderStatus(s) {
   const post = s.standing ? 'standing' : s.basic_text || '–';
   $('s-post').textContent = post[0].toUpperCase() + post.slice(1);
   $('busy').textContent = s.busy ? 'Busy with ' + s.busy : 'Idle';
-  $('busy').className = 'lamp ' + (s.busy ? 'busy' : 'off');
+  $('busy').className = 'chip lamp ' + (s.busy ? 'busy' : 'off');
   document.body.classList.toggle('estopped', !!s.estopped);
   $('cancel').hidden = !(s.busy && /^(goto|approach|follow)/.test(s.busy));
   $('follow-s').textContent = LIM.follow;
 
   lit('k-stand', s.standing); lit('k-sit', LIM.lying.includes(s.basic));   // neither while he is in between
-  for (const k of ['nav', 'camera', 'voa']) { lit(`k-${k}-1`, s[k] === true); lit(`k-${k}-0`, s[k] === false); }
-  $('s-hb').textContent = s.heartbeat ? 'on' : 'off'; $('s-hb').className = 'lamp' + (s.heartbeat ? '' : ' off');
+  for (const k of ['nav', 'camera', 'voa']) sw('k-' + k, s[k]);
+  $('t-nav').textContent = 'Nav2 ' + (s.nav ? 'on' : 'off'); $('t-nav').className = 'chip lamp' + (s.nav ? '' : ' off');
+  $('s-hb').textContent = 'Heartbeat ' + (s.heartbeat ? 'on' : 'off'); $('s-hb').className = 'chip lamp' + (s.heartbeat ? '' : ' off');
 
   const sonar = s.sonar || [];
   for (const [id, r] of [['s-sf', sonar[0]], ['s-sr', sonar[1]]]) {
@@ -535,7 +645,7 @@ function renderStatus(s) {
   ds.className = s.blocked ? 'warn' : s.driving ? 'on' : '';
   // The detector looks through the front camera, so its box sits on that picture.
   const p = s.person, who = $('who');
-  lit('k-person-1', s.detect); lit('k-person-0', !s.detect);
+  sw('k-person', s.detect);
   $('s-who').textContent = !s.detect ? 'Off' : !p ? 'Nobody'
     : (p[0] + p[2]) / 2 < 0.4 ? 'Left' : (p[0] + p[2]) / 2 > 0.6 ? 'Right' : 'Ahead';
   $('s-who').className = 'lamp' + (p ? '' : ' off');
@@ -916,6 +1026,7 @@ $('map-save').addEventListener('click', () => {
 document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => {
   const msg = { cmd: b.dataset.cmd };
   if (b.dataset.on !== undefined) msg.on = b.dataset.on === '1';
+  if (b.dataset.toggle !== undefined) msg.on = b.getAttribute('aria-checked') !== 'true';
   if (b.dataset.speed !== undefined) msg.speed = parseFloat($('speed').value);
   send(msg);
 }));
@@ -1198,8 +1309,20 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('blur', letGo);
 document.addEventListener('visibilitychange', () => { if (document.hidden) letGo(); });
 
+// --- tabs (phone and tablet): one section at a time. Leaving Drive lets go of the stick.
+function showTab(name) {
+  if (document.body.dataset.tab === 'drive' && name !== 'drive') letGo();
+  document.body.dataset.tab = name;
+  document.querySelectorAll('.tabs [data-go]').forEach(t => t.setAttribute('aria-selected', t.dataset.go === name));
+  try { localStorage.setItem('tab', name); } catch (e) {}
+  redraw(); drawMap();
+}
+document.querySelectorAll('.tabs [data-go]').forEach(t => t.addEventListener('click', () => showTab(t.dataset.go)));
+try { const t = localStorage.getItem('tab'); if (t && document.querySelector(`.tabs [data-go="${t}"]`)) showTab(t); } catch (e) {}
+
 notice();
 connect();
 </script>
+
 </body>
 </html>
