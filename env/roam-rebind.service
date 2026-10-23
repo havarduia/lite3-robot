@@ -5,7 +5,7 @@
 # connections, but perception's and motion's own links (cable to the Orin) never change, so
 # their Tailscale only notices its relay is dead ~60 s later. The rebind re-checks it within 3 s.
 [Unit]
-Description=Tailscale rebind when the Orin roams (README.md, remote driving)
+Description=Tailscale rebind when the Orin roams (docs/panel.md, "Driving across eduroam access points")
 After=tailscaled.service
 
 [Service]

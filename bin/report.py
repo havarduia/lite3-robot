@@ -10,7 +10,7 @@ Reads what bin/run.py fetched: the bag (with Jazzy's sqlite3 plugin), the
 load of all three computers, nav2.log, the relay's journal and the notes.
 Times are the laptop's clock, in seconds from the run's start. Write
 "arrived 0.07 m" as a note after a goal and it becomes that goal's arrival
-error. README "Measuring a run".
+error. docs/tools.md, "Measuring a run".
 """
 import glob
 import json

@@ -7,7 +7,7 @@
 
 Copies /joint_states, /tf, /tf_static, /odom_fused and any topics named from the robot to
 the laptop over ssh, and starts robot_state_publisher (urdf/lite3.urdf) and
-rviz2 there. Why ssh and not DDS, and what to expect: README section 10.6.
+rviz2 there. Why ssh and not DDS, and what to expect: docs/tools.md.
 
 In rviz, 2D Goal Pose and 2D Pose Estimate (in the map frame) go back up the same
 ssh link to the panel (robot/hmi.py, which must be running) as its Go here and

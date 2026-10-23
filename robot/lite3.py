@@ -12,7 +12,7 @@
 
 State is live attributes (bot.battery, bot.pose, bot.standing). Motion calls
 block and always leave a zero Twist behind. What the API enforces for you,
-and why, is in README.md section 5.
+and why, is in docs/api.md.
 """
 import math
 import os
@@ -86,7 +86,7 @@ TURN_SETTLE_S = 0.5
 
 # Roll or pitch past this aborts any motion call. Raise it before trying a slope.
 TILT_LIMIT_DEG = 30.0
-# Odometry comes through robot/lio_relay.py (README 10.7), which can die on its
+# Odometry comes through robot/lio_relay.py (docs/lidar.md), which can die on its
 # own while the bridge still takes velocities. Older than this: stop.
 ODOM_TOPIC = 'odom_fused'
 ODOM_STALE_S = 0.5

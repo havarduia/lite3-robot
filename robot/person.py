@@ -2,7 +2,7 @@
 """Find a person with the robot's built-in tracker and walk up to them.
 
 Only the tracker's detection is used; driving goes through lite3.steer()
-with the depth-camera stop. README.md section 8.
+with the depth-camera stop. docs/people-and-voice.md.
 
     python3 -m robot.person      # print where the person is, no movement
     from robot.person import PersonDetector, approach
@@ -259,7 +259,7 @@ def follow_nav(bot, det, seconds, stop_distance=0.6, speed=0.3, abort=None):
     round whatever is on it while it is not. Needs Nav2 running. speed is for
     the straight part; Nav2 sets its own pace. Returns a result like
     steer()'s, plus 'spent': seconds in each state, which is also traced to
-    FOLLOW_LOG. README.md section 8.
+    FOLLOW_LOG. docs/people-and-voice.md.
     """
     from .lite3 import HARD_TIMEOUT, MAX_SPEED, MAX_YAW_RATE, TURN_SWEEP
     if not bot.nav_running:

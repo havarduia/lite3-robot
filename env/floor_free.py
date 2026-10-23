@@ -8,12 +8,12 @@ The Orin's slicer (map_walls.py) makes a cell free if its column holds any
 point, and leaves it unknown if none. Live FAST-LIO2 clouds are sparse, so
 open floor comes out speckled with unknown cells, and unknown is a wall to
 the planner: with his half-width round each one, a room or a doorway
-closes (LIDAR_ORIN_LOG.md section 23). Here an unknown cell becomes free
+closes (docs/history/LIDAR_ORIN_LOG.md section 23). Here an unknown cell becomes free
 where the cloud has floor in it, and then where it is a pinhole in free
 space. Walls stay walls; low furniture is left to the costmap, as before.
 (Thinning walls where floor shows in a wall cell was tried and dropped:
 every wall stands on the floor, so nearly every wall cell has floor-height
-points, LIDAR_ORIN_LOG.md section 25.)
+points, docs/history/LIDAR_ORIN_LOG.md section 25.)
 """
 import re
 import sys

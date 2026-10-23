@@ -1,5 +1,5 @@
 # The robot's front wide-angle camera (motion computer, rtsp://192.168.1.120:8554/test), for
-# reading AprilTags (bin/tags.py). Calibrated 2026-10-14 (plan task 8d, LIDAR_ORIN_LOG.md section 30)
+# reading AprilTags (bin/tags.py). Calibrated 2026-10-14 (plan task 8d, docs/history/LIDAR_ORIN_LOG.md section 30)
 # from 182 views of bin/tags.py's ChArUco board; 70 fitted, 40 held out: 0.20 px median error.
 # A fisheye model fitted the same views as well and agrees with this one to 0.12 deg inside
 # the calibrated area, so the plain model is used.
@@ -18,5 +18,5 @@ delay_s: 0.29        # from the scene to a frame's arrival on the Jetson (task 8
 # lens ring at x 0.271, y 0.00, z -0.006. Pitch measured, not from the mesh (its ring tilts
 # 7.4 deg down, but the lens is not modelled): an upright tag 1.00 m ahead along the floor,
 # robot standing level, read 20.2 deg of tilt, which is the camera looking 20 deg UP; with that
-# the tag came out 1.007 m ahead along the floor (LIDAR_ORIN_LOG.md section 30).
+# the tag came out 1.007 m ahead along the floor (docs/history/LIDAR_ORIN_LOG.md section 30).
 mount: {x: 0.271, y: 0.0, z: -0.006, roll: 0.0, pitch: -0.353, yaw: 0.0}

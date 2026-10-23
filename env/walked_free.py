@@ -5,7 +5,7 @@
     walked_free.py check                                               its own check
 
 The Orin's slicer leaves cells unseen round the run's start and in clutter,
-and unseen is a wall to the planner (README 7.5): on lab3 and lab6 he
+and unseen is a wall to the planner (docs/navigation.md, map mode): on lab3 and lab6 he
 localized on the start spot and had no route anywhere. Walls stay walls,
 except where the path crosses one (a door he walked through).
 """

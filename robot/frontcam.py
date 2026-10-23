@@ -11,7 +11,7 @@ when the frame really came; only `per_second` of them are saved, as
 out_dir/NNNNN.jpg, with "arrival_time NNNNN.jpg" lines in out_dir/frames.txt.
 The camera's own delay (env/front_camera.yaml delay_s, 0.29 s) is not taken
 off here: bin/report.py does that. OpenCV stamps the frames: ffmpeg's own
-timestamps on this stream are unusable (LIDAR_ORIN_LOG.md section 29).
+timestamps on this stream are unusable (docs/history/LIDAR_ORIN_LOG.md section 29).
 """
 import os
 import signal

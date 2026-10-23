@@ -3,7 +3,7 @@
 #   sudo cp lio-send.service /etc/systemd/system/ && sudo systemctl enable --now lio-send
 [Unit]
 # FAST-LIO2's pose and the flat /scan, as UDP datagrams to the relay on the
-# perception computer (robot/lio_relay.py, README 10.7).
+# perception computer (robot/lio_relay.py, docs/lidar.md).
 Description=Lidar pose and scan to the Lite3 relay (lio_relay.py send)
 After=lidar-scan.service network-online.target
 Wants=lidar-scan.service

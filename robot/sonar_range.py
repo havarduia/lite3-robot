@@ -2,7 +2,7 @@
 
 Republishes Jetson2Motion's bare Float64 readings at 20 Hz on /sonar/front
 and /sonar/rear, with static TFs from base_link. Started with Nav2 by
-env/start_nav2_mapless.sh, in its process group. README.md section 6.2.
+env/start_nav2_mapless.sh, in its process group. docs/api.md.
 
     python3 -m robot.sonar_range
 """

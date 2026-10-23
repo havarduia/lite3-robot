@@ -1,6 +1,6 @@
 #!/bin/bash
 # eduroam on the ORIN: reconnect when the gateway stops answering, and roam to a
-# stronger access point before the current one dies (README.md, "Who is on eduroam").
+# stronger access point before the current one dies (docs/panel.md, "Who is on eduroam").
 # Installed as /usr/local/bin/eduroam-watchdog.sh, run by env/eduroam-watchdog.service.
 #
 # Test round 2026-10-19: of 5 access point changes in 13 min only 1 was a clean

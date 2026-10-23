@@ -12,7 +12,7 @@ and the black square of each tag TAG_M. Glue them flat on stiff board.
 
 Written for the laptop's OpenCV 4.6 (the cv2.aruco calls before 4.7 renamed
 them). The camera's numbers come from env/front_camera.yaml once task 8d of
-.planning/plans/compute-distribution.md has filled it in. README "Measuring a run".
+.planning/plans/compute-distribution.md has filled it in. docs/tools.md, "Measuring a run".
 """
 import math
 import os

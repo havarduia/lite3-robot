@@ -24,7 +24,7 @@ Steps (comma separated, or one per line with --interactive):
 He stands first and sits at the end, talks only while standing still, and
 skips a step that fails. Without --handheld it sends its own heartbeat, so
 Ctrl-C (an e-stop) and the power switch are the only stops. More in
-README.md section 10.1.
+docs/tools.md.
 """
 import argparse
 import contextlib

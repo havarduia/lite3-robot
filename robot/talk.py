@@ -6,7 +6,7 @@ The layers: Voice (one sound: a clip, a file, a URL, or text through
 Piper), Speaker (streaming Piper, sentence by sentence), Line (speech that
 comes as samples) and Talker (Gemini answers in its own voice through Line;
 say(), look() and anything that falls back to REST go through Speaker). How
-it works and what it needs installed: README.md section 9.
+it works and what it needs installed: docs/people-and-voice.md.
 
     from robot.talk import Voice, Talker
     Voice().play('OKstandup')                  # one of the robot's ~33 clips

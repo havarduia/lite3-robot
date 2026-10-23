@@ -1,7 +1,7 @@
 """The D435i on realsense-ros 4.58.3: a drop-in for the vendor's
 dr_camera_launch.py with the same topics and frames, plus colour and the
 camera's IMU. steady_stamp and voxel_leaf_size are our patch to the driver.
-README.md section 11.3.
+docs/environment.md, "Camera stack".
 
     ros2 launch ~/robot/env/camera.launch.py
 """

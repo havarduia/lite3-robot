@@ -19,7 +19,7 @@ from .protocol import Lite3Error
 # --- nav2 ---
 # The stack runs in its own process group (setsid) and is killed by that
 # group: killing by name misses its children, or reaches the
-# static_transform_publisher the services use. README.md section 7.2.
+# static_transform_publisher the services use. docs/navigation.md.
 NAV_MARKERS = ('dr_nav2_mapless', 'bt_navigator', 'planner_server',
                'controller_server', 'robot.sonar_range')
 # Never kill a group holding one of these. Executables, not words: the
@@ -406,7 +406,7 @@ class Nav:
 
     # --- map mode ----------------------------------------------------------
     # A floor map under Nav2 (env/start_nav2_map.sh): AMCL places him on it from
-    # the lidar, robot/locate.py says whether to believe it. README section 7.
+    # the lidar, robot/locate.py says whether to believe it. docs/navigation.md.
 
     _pose_pub = None
 

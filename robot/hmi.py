@@ -6,7 +6,7 @@ It holds one Lite3 with the heartbeat running, so stop it before running any
 other script that drives the robot. A browser button is not a hardware stop:
 keep the handheld at hand. The safety model (hold-to-move, the depth and
 sonar stops, E-STOP, what happens when the page goes away) and the camera
-plumbing are in README.md section 10.3.
+plumbing are in docs/panel.md.
 """
 import asyncio
 import json

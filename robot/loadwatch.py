@@ -8,7 +8,7 @@ Stdlib only, Python 3.8: bin/run copies this one file to all three robot
 computers (the motion computer and the Orin have no repo). One line per
 sample: wall time, host, per-core busy %, load average, memory, and the
 TOP processes by CPU (% of one core, like top). Each line is flushed, so a
-run cut short still leaves everything up to the cut. README "Measuring a run".
+run cut short still leaves everything up to the cut. docs/tools.md, "Measuring a run".
 """
 import json
 import os

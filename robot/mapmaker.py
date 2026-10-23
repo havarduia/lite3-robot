@@ -10,8 +10,8 @@
     python3 -m robot.mapmaker check     self-check against a pretend Orin, no robot
 
 All on the perception computer, over the Orin panel's HTTP API (no ssh, no
-laptop): it is what env/get_map.sh and LIDAR_ORIN_LOG.md sections 19 and 27
-did by hand. README.md section 7.5.
+laptop): it is what env/get_map.sh and docs/history/LIDAR_ORIN_LOG.md sections 19 and 27
+did by hand. docs/navigation.md, map mode.
 """
 import importlib.util
 import json

@@ -12,7 +12,7 @@ ssh, or a laptop that goes to sleep, ends nothing early and leaves nothing
 running past --minutes. Stopped by pid, never by name. The topic list is
 env/runlog_topics.txt, sent along: no Nav2 word on any command line.
 Reached through the robot's hotspot when the laptop is on it, else over
-Tailscale. bin/report.py reads the folder. README "Measuring a run".
+Tailscale. bin/report.py reads the folder. docs/tools.md, "Measuring a run".
 """
 import argparse
 import datetime
@@ -81,7 +81,7 @@ def clock_offset(route, samples=CLOCK_SAMPLES):
     """(seconds that computer's clock is ahead of the laptop's, how sure: half the round trip).
     Over one open connection, the quickest of `samples` asks: a fresh ssh each time spends most
     of its round trip (0.2-1 s through the hotspot hop) setting up, which made the Jetson look
-    0.5-1 s ahead when NTP had it within 3 ms (LIDAR_ORIN_LOG.md section 29)."""
+    0.5-1 s ahead when NTP had it within 3 ms (docs/history/LIDAR_ORIN_LOG.md section 29)."""
     loop = 'while read x; do date +%s.%N; done'
     cmd = ['bash', '-c', loop] if route is None else SSH + route + [loop]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

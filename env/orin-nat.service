@@ -2,10 +2,10 @@
 #   sudo cp orin-nat.service /etc/systemd/system/ && sudo systemctl enable --now orin-nat
 # The Orin is the robot's way out to the internet: it alone is on eduroam (its own 5 GHz
 # radio), and the perception and motion computers route through it over the switch. That
-# leaves the motion computer's one radio to the AP, on 5 GHz ch 36 (README.md, Internet).
+# leaves the motion computer's one radio to the AP, on 5 GHz ch 36 (docs/panel.md, "Who is on eduroam").
 # Forward rules go in DOCKER-USER: Docker owns FORWARD (policy DROP) and leaves that chain alone.
 [Unit]
-Description=NAT the robot's switch (192.168.1.0/24) out over eduroam (lite3_api README.md)
+Description=NAT the robot's switch (192.168.1.0/24) out over eduroam (lite3_api docs/panel.md)
 After=network-online.target docker.service
 Wants=network-online.target
 

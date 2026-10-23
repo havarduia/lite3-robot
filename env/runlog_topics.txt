@@ -1,7 +1,7 @@
 # Topics bin/run records on the perception computer (ros2 bag record).
 # Light ones only: no point clouds, no images. One per line; # starts a comment.
 # Kept in a file so no Nav2 program name ever lands on a command line
-# (memory: the marker-word trap). README "Measuring a run".
+# (memory: the marker-word trap). docs/tools.md, "Measuring a run".
 
 # where he thought he was, by each source
 /odom_fused

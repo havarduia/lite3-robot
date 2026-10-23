@@ -25,7 +25,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from robot import cloudreg  # noqa: E402
 
-# Stretches of big_walk_to_arcade, on its map (LIDAR_ORIN_LOG section 34): x, y boxes, first match wins
+# Stretches of big_walk_to_arcade, on its map (docs/history/LIDAR_ORIN_LOG.md section 34): x, y boxes, first match wins
 STRETCHES = [('bridge', (-80, -76), (-45, -32)), ('slope corridor', (-80, -76), (-31, -14)),
              ('arcade', (-120, -40), (-75, -52)), ('lab', (-5, 10), (-10, 10)),
              ('long corridor', (-80, -5), (-15, -9))]

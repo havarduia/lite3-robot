@@ -14,7 +14,7 @@ finding itself on a floor map) and the odom -> base_link transform for Nav2.
 The Orin is Humble with Fast DDS on domain 42; the robot's nodes are
 CycloneDDS on domain 0 and crash on meeting it. So this file runs on the
 Orin too, as `send`, and passes each pose and scan over as a UDP datagram.
-README.md section 10.7.
+docs/lidar.md.
 """
 import array
 import collections

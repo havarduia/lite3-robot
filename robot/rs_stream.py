@@ -4,7 +4,7 @@
 
 Pipes the camera's JPEG topic through GStreamer and the Jetson's hardware
 encoder to RS_RTSP. A process of its own (hmi.py starts it); exits when
-that one does. Why JPEG, hardware and a separate process: README.md 10.3.
+that one does. Why JPEG, hardware and a separate process: docs/panel.md.
 """
 import os
 import signal
