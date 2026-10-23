@@ -46,7 +46,7 @@ Where each sensor lives matters in the code:
 | Robot state, battery, leg odometry, IMU, sonars | motion → republished on Jetson | ROS2 topics from `transfer_ros2` |
 | Depth camera (RealSense D435i) | Jetson, USB | ROS2 topic `/camera/depth/color/points` |
 | Front wide-angle camera | motion | RTSP stream, grabbed with `ffmpeg` |
-| Person detector | motion (NPU) | UDP + JSON on port 43901 |
+| Person detector | motion (NPU) | Not used: removed 2026-10-23 ([voice.md](voice.md)) |
 | Speaker | motion | `ssh` to the motion computer, run `aplay` |
 
 ## How a command reaches the legs

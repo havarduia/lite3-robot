@@ -167,8 +167,7 @@ cycle and returns `(vx, wz)` to keep going or a string to stop. Same guards,
 same clamping to `MAX_SPEED = 0.6 m/s` and `MAX_YAW_RATE = 1.6 rad/s` (a
 commanded rate: he delivers 0.7 of it, [Measured numbers and calibration](environment.md#measured-numbers-and-calibration); it was 0.8 until that was
 measured), same
-guaranteed halt. Person following, teleop and the web joystick are all
-built on `steer()`.
+guaranteed halt. Teleop and the web joystick are built on `steer()`.
 
 ### Emergency stop
 

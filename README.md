@@ -14,8 +14,8 @@ with Lite3() as bot:
     print(bot.scan_text())     # what the depth camera sees, as a bar chart
 ```
 
-On top of that API: Nav2 navigation (mapless, or on a floor map), person
-following, speech through the robot's speaker, a scripted tour, keyboard
+On top of that API: Nav2 navigation (mapless, or on a floor map), speech
+through the robot's speaker, a scripted tour, keyboard
 teleop and a web control panel.
 
 ## The idea in one paragraph
@@ -99,7 +99,7 @@ It tests the motion loop against a fake robot, so it runs anywhere.
 | understand the computers, the network ports and the arming interlock | [docs/hardware.md](docs/hardware.md) |
 | use the `Lite3` API: state, posture, motion, e-stop, depth camera, sonars | [docs/api.md](docs/api.md) |
 | navigate with Nav2, mapless or on a floor map, and save places | [docs/navigation.md](docs/navigation.md) |
-| follow people, or make the robot talk | [docs/people-and-voice.md](docs/people-and-voice.md) |
+| make the robot talk | [docs/voice.md](docs/voice.md) |
 | run or change the web panel, cameras and wifi/eduroam networking | [docs/panel.md](docs/panel.md) |
 | work with the lidar, the Orin and FAST-LIO2 odometry | [docs/lidar.md](docs/lidar.md) |
 | run the tour, teleop, demos, rviz, or measure a run | [docs/tools.md](docs/tools.md) |
@@ -121,7 +121,6 @@ robot/                 the library: `from robot.lite3 import Lite3`
   depth.py             point cloud -> obstacle ranges                          (part of Lite3)
   protocol.py          every UDP code and address; no ROS; also a raw-code CLI
   sonar_range.py       ROS node: sonars -> sensor_msgs/Range for Nav2
-  person.py            person detection (the robot's built-in tracker) and following
   talk.py              speaker: built-in clips, Piper text-to-speech (offline)
   hmi.py               web control panel server; the page is in hmi_static/
   rs_stream.py         RealSense colour -> H.264 video          (started by hmi.py)

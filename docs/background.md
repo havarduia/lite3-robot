@@ -55,11 +55,6 @@ alone drifts over long runs; since 2026-10-08 FAST-LIO2 on the Orin corrects
 it into `/odom_fused` (a 10.4 m walked loop closed to 0.05 m, against 0.21 m
 by the legs alone; [lidar.md](lidar.md)).
 
-**How does person following work?**
-The robot's own NPU detector gives bounding boxes over UDP. A proportional
-controller turns to centre the person, walks when centred, slows near the
-target, and uses the depth camera for the actual stopping distance.
-
 **What happens if the program crashes or Wi-Fi drops?**
 Motion calls always publish zero velocity on exit. Remote driving (teleop,
 web) uses dead-man timeouts of 0.3–0.5 s, and a Go started from the web panel

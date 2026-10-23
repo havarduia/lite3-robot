@@ -143,7 +143,6 @@ Returns the action status: 4 = succeeded, 6 = aborted, 5 = cancelled.
 `goal_send(gx, gy, gyaw)` is step 4 on its own: a goal at an odom point,
 returned as soon as Nav2 accepts it, replacing any goal under way. No checks.
 `goal_active()` says whether Nav2 is still working on it.
-`person.follow_nav()` uses it to keep moving the goal.
 
 `goto_cancel()`, from another thread, ends a goal and leaves Nav2 up; `estop()`
 ends it and kills Nav2. Either way `goto()` returns 5 and he ends halted.
@@ -230,8 +229,8 @@ The same from the command line: `python3 -m robot.lite3 floors`,
   path, and mapless goals were always ahead.
 - **Frames.** In map mode Nav2 takes a goal's numbers as map coordinates
   whatever frame its header names, so `goal_send()` and `cost_at()` move
-  an odom point onto the map themselves. `goto(forward)`, following and
-  the tour keep working unchanged in either mode.
+  an odom point onto the map themselves. `goto(forward)` and the tour
+  keep working unchanged in either mode.
 - **Places** are `~/lite3_maps/<floor>/places.json` (`robot/places.py`):
   names unique per floor whatever the case, a damaged file moved aside
   and never written over.

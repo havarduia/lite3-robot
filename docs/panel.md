@@ -49,18 +49,6 @@ CDN: even its typeface, B612, is embedded) with:
   "dead-man" switch: released, tab closed, Wi-Fi lost → stop). Forward stops
   at camera clearance ≤ 0.6 m, backward at rear sonar < 0.5 m. Driving is
   refused while Nav2 runs;
-- **person detection** on/off (Systems): the built-in tracker of [Finding and following people](people-and-voice.md#finding-and-following-people),
-  looking only. The row says whether someone is in view and on which side,
-  and the box is drawn on the front camera view, which is the camera the
-  tracker looks through. The switch itself only looks;
-- **Walk up** and **Follow** (Navigate): `person.approach()` and
-  `person.follow()` of [Finding and following people](people-and-voice.md#finding-and-following-people), stopping 0.6 m short. They switch detection
-  on if it is off (with Nav2 on, Follow is `follow_nav()` and goes round
-  obstacles), and walk at the Drive section's top-speed slider as it is
-  when pressed (a Go does not: Nav2's speed is in its own config). One press
-  of Follow lasts 30 s, the ceiling on any single
-  move. Cancel and E-STOP end either within one 50 ms cycle (the `abort`
-  argument of both functions), and so does the page going away, as for a Go;
 - Say it: text spoken aloud through Piper (offline), with a volume fader;
 - an always-visible **E-STOP** (also the space bar) that bypasses the command
   queue and calls `Lite3.estop()` directly;
@@ -149,17 +137,12 @@ up-or-down one still scrolls the page.
   about 150 bytes each. Sonars, tilt and scan come from the status message
   the page gets anyway. The page eases between messages so he moves, not
   jumps.
-- **What he intends** is drawn on the floor: Nav2's path as a line, its goal
-  as a ring with a stroke the way he will end up facing, and the person he
-  sees as a column of a person's size. They come in the status message
-  (`goal`, `plan`, `them`, all in odom) and go when the goal is over or the
-  person is no longer seen. The person's place is one fix from the box in
-  the front camera and the depth scan (`person.where()`), good to about
-  half a metre, and only as fresh as the scan (1 Hz). The path is Nav2's
-  `/plan` thinned to about 40 points.
-- The panel also puts the goal and the person on `/intent/goal` and
-  `/intent/person` (2 Hz, while there is one) so rviz and recordings get
-  them: [robot/rviz.py: the live robot in rviz2 on the laptop](tools.md#robotrvizpy-the-live-robot-in-rviz2-on-the-laptop).
+- **What he intends** is drawn on the floor: Nav2's path as a line, and its
+  goal as a ring with a stroke the way he will end up facing. They come in
+  the status message (`goal`, `plan`, in odom) and go when the goal is over.
+  The path is Nav2's `/plan` thinned to about 40 points.
+- The panel also puts the goal on `/intent/goal` (2 Hz, while there is one)
+  so rviz and recordings get it: [robot/rviz.py: the live robot in rviz2 on the laptop](tools.md#robotrvizpy-the-live-robot-in-rviz2-on-the-laptop).
 - Not in it: the full depth cloud and the costmaps. Those cost the robot
   real work per viewer; rviz on the laptop ([robot/rviz.py: the live robot in rviz2 on the laptop](tools.md#robotrvizpy-the-live-robot-in-rviz2-on-the-laptop)) has them.
 

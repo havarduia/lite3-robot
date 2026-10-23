@@ -5,7 +5,7 @@ The speaker is on the MOTION computer, so playing a sound is ssh + aplay.
 Voice plays one sound: a built-in clip, a file, a URL, or text through Piper
 (offline text-to-speech, on this computer). Speaker is the streaming Piper
 behind Voice.say. Nothing here goes to the internet except play_url. How it
-works and what it needs installed: docs/people-and-voice.md.
+works and what it needs installed: docs/voice.md.
 
     from robot.talk import Voice
     Voice().play('OKstandup')                  # one of the robot's ~33 clips

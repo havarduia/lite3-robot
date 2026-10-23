@@ -3,17 +3,17 @@
 ## `bin/tour.py`: walk a route
 
 ```
-python3 bin/tour.py "walk 1.5, turn 90, goto 2 -90, person, follow 60"
+python3 bin/tour.py "walk 1.5, turn 90, goto 2 -90"
 ```
 
-Verbs: `walk <m>`, `turn <deg>`, `goto <m> [<deg>]` (Nav2), `approach <m>`,
-`person` (walk up to the nearest person), `follow <s>`. Flow: heartbeat →
+Verbs: `walk <m>`, `turn <deg>`, `goto <m> [<deg>]` (Nav2), `approach <m>`.
+Flow: heartbeat →
 wait for the interlock → stand → (if needed) wait for the pose to settle and
 start Nav2 → each step → stop Nav2 → sit → drop heartbeat. A failed step is
 reported and skipped. At the end, still standing, he says `--finale "..."`
-(Piper, offline), tilting the body up (`--look-up 12`) to face the person, or
+(Piper, offline), tilting the body up (`--look-up 12`) to face whoever is there, or
 otherwise how far he walked. An `Odometer` thread sums the actual path length
-for that (summing start-to-end per step counted a 14 m follow as 7.2 m).
+for that (summing start-to-end per step undercounts any step that is not straight).
 Until 2026-10-23 he also looked and commented after every step, through
 Gemini; that was removed (PRIVACY.md).
 
@@ -49,7 +49,7 @@ debugging and capturing unknown codes only.
 ## `robot/rviz.py`: the live robot in rviz2 on the laptop
 
     python3 -m robot.rviz                # on the laptop, in ~/lite3_api: the model only
-    python3 -m robot.rviz sensors        # plus depth cloud, sonars, costmaps, Nav2 path, goal, person
+    python3 -m robot.rviz sensors        # plus depth cloud, sonars, costmaps, Nav2 path, goal
     python3 -m robot.rviz nav            # the floor map view (env/lite3_nav.rviz), goals from rviz
     python3 -m robot.rviz /some/topic    # plus any topics you name
     python3 -m robot.rviz --record walk.rec sensors    # the same, and kept in walk.rec
@@ -126,11 +126,10 @@ so and shows the small ones. Delete the folder to go back to them.
 
 **What to expect.**
 - `sensors` also shows **what he intends**: Nav2's path (`/plan`, and the
-  controller's `/local_plan`), its goal as an arrow on the floor and the
-  person he sees as a column. Goal and person come from the panel
-  (`/intent/goal`, `/intent/person`), so the panel has to be running; the
-  laptop end draws them as markers that fade 1.5 s after the last one, so
-  a reached goal or a lost person disappears. (Markers are made on the
+  controller's `/local_plan`), and its goal as an arrow on the floor. The
+  goal comes from the panel (`/intent/goal`), so the panel has to be
+  running; the laptop end draws it as a marker that fades 1.5 s after the
+  last one, so a reached goal disappears. (Markers are made on the
   laptop because the Marker message changed after Foxy and would not
   survive the relay.)
 - `sensors` shows what fits the 3D view: the depth cloud; the two sonars

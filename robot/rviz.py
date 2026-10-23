@@ -42,19 +42,19 @@ KNEE_R, FOOT_R, BELLY = 0.03, 0.023, 0.054
 MAX_HZ = 20.0           # per topic; latched topics are never dropped
 BIG, BIG_HZ = 20000, 5.0    # messages over BIG bytes (clouds) go at BIG_HZ
 SHARE = 4.0             # a topic waits this many times its last write before the next
-GOAL, PERSON = '/intent/goal', '/intent/person'    # from the panel (hmi.py), drawn as markers here
+GOAL = '/intent/goal'  # from the panel (hmi.py), drawn as a marker here
 # What `sensors` on the command line stands for: what he senses, and what he intends.
-# The costmaps and paths only exist with Nav2 up, goal and person with the panel running.
+# The costmaps and paths only exist with Nav2 up, the goal with the panel running.
 SENSORS = ['/camera/depth/color/points', '/us_publisher/ultrasound_front',
            '/us_publisher/ultrasound_distance', '/global_costmap/costmap',
-           '/local_costmap/costmap', '/plan', '/local_plan', GOAL, PERSON]
+           '/local_costmap/costmap', '/plan', '/local_plan', GOAL]
 # `nav`: the floor map view. Not the global costmap: on a big floor it is megabytes a
 # second over ssh (name /global_costmap/costmap to have it anyway).
 NAV = ['/map', '/scan_walls', '/local_costmap/costmap', '/local_costmap/published_footprint',
        '/plan', '/local_plan', '/lookahead_point', '/lookahead_collision_arc', '/particlecloud',
-       '/us_publisher/ultrasound_front', '/us_publisher/ultrasound_distance', GOAL, PERSON]
+       '/us_publisher/ultrasound_front', '/us_publisher/ultrasound_distance', GOAL]
 PANEL = 'http://127.0.0.1:8080/ws'     # robot/hmi.py, on the robot; rviz's goals go to it
-MARK_S = 1.5            # a goal or person marker fades this long after the panel last sent it (2 Hz)
+MARK_S = 1.5            # the goal marker fades this long after the panel last sent it (2 Hz)
 RESCAN_S = 2.0          # look for topics that were not there yet (Nav2 started later)
 RETRY_S = 2.0           # between attempts to reach the robot again
 ANNOUNCE = 255          # frame index that carries a topic announcement, not a message
@@ -260,7 +260,7 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
     import rclpy
     from ament_index_python.packages import get_package_prefix
     from builtin_interfaces.msg import Duration
-    from geometry_msgs.msg import PointStamped, PoseStamped, PoseWithCovarianceStamped, TransformStamped
+    from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TransformStamped
     from nav_msgs.msg import Odometry
     from sensor_msgs.msg import JointState, Range
     from std_msgs.msg import Float64
@@ -377,20 +377,14 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
         pub.publish(r)
 
     def mark(topic, data):
-        # As markers because they fade: a goal he has reached, or a person he no
-        # longer sees, is gone from the view MARK_S later.
+        # A marker because it fades: a goal he has reached is gone from the view
+        # MARK_S later. An arrow lying on the floor, pointing the way he will face.
         m = Marker(ns=topic, action=Marker.ADD, lifetime=Duration(sec=int(MARK_S), nanosec=int(MARK_S % 1 * 1e9)))
         m.header.frame_id = 'odom'
-        if topic == GOAL:                   # an arrow lying on the floor, pointing the way he will face
-            m.type, m.pose = Marker.ARROW, deserialize_message(data, PoseStamped).pose
-            m.pose.position.z = 0.03
-            m.scale.x, m.scale.y, m.scale.z = 0.5, 0.08, 0.08
-            m.color.r, m.color.g, m.color.b, m.color.a = 1.0, 0.72, 0.1, 1.0
-        else:                               # someone standing: a column of a person's size
-            m.type, m.pose.position = Marker.CYLINDER, deserialize_message(data, PointStamped).point
-            m.pose.position.z, m.pose.orientation.w = 0.9, 1.0
-            m.scale.x, m.scale.y, m.scale.z = 0.45, 0.45, 1.8
-            m.color.r, m.color.g, m.color.b, m.color.a = 0.3, 0.8, 1.0, 0.5
+        m.type, m.pose = Marker.ARROW, deserialize_message(data, PoseStamped).pose
+        m.pose.position.z = 0.03
+        m.scale.x, m.scale.y, m.scale.z = 0.5, 0.08, 0.08
+        m.color.r, m.color.g, m.color.b, m.color.a = 1.0, 0.72, 0.1, 1.0
         mark_pub.publish(m)
 
     def robot_tf(data):
@@ -415,7 +409,7 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
                         stamp = odom_tf(data)
                     elif names[i] in sonar and stamp is not None:
                         sonar_range(names[i], data)
-                    elif names[i] in (GOAL, PERSON):
+                    elif names[i] == GOAL:
                         mark(names[i], data)
                     elif names[i] == '/joint_states':
                         joints = deserialize_message(data, JointState)

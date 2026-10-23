@@ -39,13 +39,13 @@ These notes and the plans cite sections of the old, single README
 | §7.4 `goto(forward, heading_deg=None)` | [navigation.md](../navigation.md#gotoforward-heading_degnone) |
 | §7.5 Map mode: a floor map, and going to a place on it | [navigation.md](../navigation.md#map-mode-a-floor-map-and-going-to-a-place-on-it) |
 | §7.6 What he says on a map goal | [navigation.md](../navigation.md#what-he-says-on-a-map-goal) |
-| §8 Finding and following people | [people-and-voice.md](../people-and-voice.md#finding-and-following-people) |
-| §9 Talking: speaker, TTS and Gemini | [people-and-voice.md](../people-and-voice.md#talking-speaker-tts-and-gemini) |
-| §9.1 `Voice`: one sound at a time | [people-and-voice.md](../people-and-voice.md#voice-one-sound-at-a-time) |
-| §9.2 `Speaker`: streaming, sentence by sentence | [people-and-voice.md](../people-and-voice.md#speaker-streaming-sentence-by-sentence) |
-| §9.3 `Talker`: Gemini answers, in its own voice | [people-and-voice.md](../people-and-voice.md#talker-gemini-answers-in-its-own-voice) |
+| §8 Finding and following people | removed 2026-10-23 (see [voice.md](../voice.md)) |
+| §9 Talking: speaker, TTS and Gemini | [voice.md](../voice.md) |
+| §9.1 `Voice`: one sound at a time | [voice.md](../voice.md#voice-one-sound-at-a-time) |
+| §9.2 `Speaker`: streaming, sentence by sentence | [voice.md](../voice.md#speaker-streaming-sentence-by-sentence) |
+| §9.3 `Talker`: Gemini answers, in its own voice | removed 2026-10-23 (see [voice.md](../voice.md)) |
 | §10 Programs you run | [tools.md](../tools.md) |
-| §10.1 `bin/tour.py`: walk a route and comment on it | [tools.md](../tools.md#bintourpy-walk-a-route-and-comment-on-it) |
+| §10.1 `bin/tour.py`: walk a route and comment on it | [tools.md](../tools.md#bintourpy-walk-a-route) |
 | §10.2 `bin/teleop.py`: keyboard driving over SSH | [tools.md](../tools.md#binteleoppy-keyboard-driving-over-ssh) |
 | §10.3 `robot/hmi.py`: web control panel | [panel.md](../panel.md) |
 | §10.4 `demos/` | [tools.md](../tools.md#demos) |

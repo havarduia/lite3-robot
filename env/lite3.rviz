@@ -295,7 +295,7 @@ Visualization Manager:
         Value: /local_plan
       Value: true
     - Class: rviz_default_plugins/Marker
-      Name: Goal and person
+      Name: Goal
       Enabled: true
       Topic:
         Value: /intent/markers

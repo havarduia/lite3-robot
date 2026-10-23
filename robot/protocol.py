@@ -23,18 +23,15 @@ captured from the handheld or phone app here.
 """
 import hashlib
 import hmac
-import json
 import os
 import secrets
 import socket
 import struct
 import subprocess
-import time
 
 MOTION_IP = '192.168.1.120'          # 192.168.2.1 on the robot's own wifi
 AP_IP = '192.168.2.1'                # the motion computer on its own wifi (wifi_mode.sh)
 MOTION_ADDR = (MOTION_IP, 43893)     # jy_exe: every motion command
-TRACKER_ADDR = (MOTION_IP, 43901)    # track service, JSON payloads
 # jetson2app on THIS (perception) computer: the app/handheld AI switch
 # APP_ADDR = ('127.0.0.1', 43899)
 CAMERA_URL = 'rtsp://%s:8554/test' % MOTION_IP
@@ -111,17 +108,6 @@ ACTIONS = {
 # AI_QUERY = 0x2101210D       # reply: same code, value 0x11 up / 0x10 down
 # CAMERA_ON, CAMERA_OFF = 0x40, 0x00
 
-# --- tracker port, 12 B header <code, json_len, 1> then JSON -----------------
-# Replies come back to the sender's own address and port. The commented ones
-# are decoded but not used.
-# TRK_VIDEO = 0x21013301      # {"enabled":0|1}  video streaming
-TRK_DETECT = 0x21013302     # {"enabled":0|1}  person detection
-# TRK_FOLLOW = 0x21013303     # {"targetID":n,"enabled":0|1}  built-in follow
-TRK_TARGETS = 0x21013304    # <- {"targets":[{"id","following","bbox"}]} ~27/s
-TRK_QUERY = 0x21013305      # {} -> TRK_MODES
-TRK_MODES = 0x21013306      # <- {"modes":{"streaming","tracking","following"}}
-
-
 def send(code, value=0):
     """One simple frame to jy_exe. value is signed (stick axes go negative)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -163,13 +149,6 @@ def voa(on=None):
     """voa_ros2. Its drop-in (env/voa_ros2-override.conf) binds it to the
     camera: starting voa starts the camera, stopping the camera stops voa."""
     return _service('voa_ros2.service', on)
-
-
-def tracker_packet(code, **fields):
-    """A tracker frame. Send it from a bound socket: replies come back to it."""
-    body = json.dumps(dict(timestamp=int(time.time() * 1000), sendIP='',
-                           destIP='', **fields)).encode()
-    return struct.pack('<iii', code, len(body), 1) + body
 
 
 def lookup(name):

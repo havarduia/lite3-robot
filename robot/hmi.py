@@ -27,9 +27,8 @@ from aiohttp import ClientSession, web, WSMsgType
 from . import protocol as P
 from .depth import sampled
 from . import mapmaker
-from . import person
 from . import places
-from .lite3 import BATTERY_REFUSE, BATTERY_WARN, HARD_TIMEOUT, LYING, Lite3
+from .lite3 import BATTERY_REFUSE, BATTERY_WARN, LYING, Lite3
 from .nav import CANCELED, REPO, SUCCEEDED, clamp, status_text
 from .protocol import Lite3Error
 from .rviz import height
@@ -49,7 +48,6 @@ DRIVE_MAX_WZ = 0.8     # rad/s
 RS_LINGER_S = 10.0     # rs_stream.py keeps running this long after the last viewer
 GONE_S = 3.0           # no page for this long: a Go is cancelled. The page reconnects in 1.5 s
 LET_GO_S = 2.0         # Nav2 gets this long to act on that cancel before it is an E-STOP
-FOLLOW_S = HARD_TIMEOUT  # one press of Follow lasts this long: the ceiling on any one move
 PING_S = 5.0           # a page that has gone silent is noticed within about 1.5 x this
 MODEL_HZ = 10.0        # joint angles to pages showing the 3D model; /joint_states comes at 10
 LEGS = ('LF', 'RF', 'LB', 'RB')    # the order the page gets the joints in, three per leg
@@ -60,7 +58,7 @@ LOGIN_DAYS = 30        # a login lasts this long on one browser
 # What the page needs to know to draw and warn with the same numbers as here.
 LIMITS = {'vx': DRIVE_MAX_VX, 'wz': DRIVE_MAX_WZ, 'stop': FORWARD_STOP_M,
           'rear': REAR_STOP_M, 'refuse': BATTERY_REFUSE, 'warn': BATTERY_WARN,
-          'lying': LYING, 'gone': GONE_S, 'follow': FOLLOW_S,
+          'lying': LYING, 'gone': GONE_S,
           # for the 3D model: each sonar's x on the body, heading, longest reading; beam width
           'sonars': {name: [x, yaw, top] for name, (_, x, yaw, top) in SONARS.items()},
           'fov': FOV}
@@ -184,25 +182,22 @@ class Robot:
         self.services = {'camera': None, 'voa': None}
         self.scan = None
         self._warned = {}                       # msg -> time, to stop log spam
-        self.det = None                         # PersonDetector while detection is on
-        self.stop_asked = False                 # Cancel, for a walk to or after a person
         self.joints = None                      # name -> angle, for the 3D model
         self.floors = []                        # the floors that have a map
         self.mapping = None                     # while Record map runs: {'dist', 't'} of the Orin's run
         self.floor = None                       # the loaded one, for the page: name, origin, cell size, places
         self.target = None                      # the map point he was last sent to
-        from geometry_msgs.msg import PointStamped, PoseStamped
+        from geometry_msgs.msg import PoseStamped
         from nav_msgs.msg import Path
         from sensor_msgs.msg import JointState
         self.bot._node.create_subscription(
             JointState, '/joint_states',
             lambda m: setattr(self, 'joints', dict(zip(m.name, m.position))), 1)
-        # What he intends, for the 3D views: Nav2's path in, his goal and where he
-        # takes the person to be out (rviz gets those two through robot/rviz.py).
+        # What he intends, for the 3D views: Nav2's path in, his goal out (rviz gets
+        # it through robot/rviz.py).
         self.plan = None
         self.bot._node.create_subscription(Path, '/plan', self._plan_cb, 1)
         self._goal_pub = self.bot._node.create_publisher(PoseStamped, '/intent/goal', 1)
-        self._them_pub = self.bot._node.create_publisher(PointStamped, '/intent/person', 1)
 
     # --- commands --------------------------------------------------------
     def log(self, msg, level=None):
@@ -254,18 +249,15 @@ class Robot:
             self.log('E-STOP error: %s' % e, 'error')
 
     def cancel(self, why='from the panel'):
-        """End a Go, an approach or a follow that is under way. Nav2 stays up,
-        unlike E-STOP."""
+        """End a Go that is under way. Nav2 stays up, unlike E-STOP."""
         going = self.bot.goto_cancel()
-        if self.busy in ('approach', 'follow'):
-            self.stop_asked = going = True
         if going:
             self.log('cancelled ' + why, 'warn')
         return going
 
     def abandoned(self):
-        """No page is open, so nobody can press E-STOP: a Go, an approach or a
-        follow must not carry on alone. (Driving stops by itself, DEADMAN_S.)"""
+        """No page is open, so nobody can press E-STOP: a Go must not carry on
+        alone. (Driving stops by itself, DEADMAN_S.)"""
         if self.cancel('- no panel connected'):
             time.sleep(LET_GO_S)
             if self.bot.goto_cancel():          # still there: Nav2 has not let go
@@ -314,29 +306,6 @@ class Robot:
     def service(self, which, on):
         self.services[which] = getattr(P, which)(on)
         return '%s %s' % (which, 'up' if self.services[which] else 'down')
-
-    def detect(self, on):
-        """Person detection on or off. On its own it only looks."""
-        if self.det:
-            self.det.stop()
-            self.det = None
-        if on:
-            self.det = person.PersonDetector()
-            self.det.start()
-        self.log('person detection ' + ('on' if on else 'off'))
-
-    def to_person(self, move, **kw):
-        """person.approach or person.follow, ended by Cancel and E-STOP as
-        well. Switches detection on if it is off, and leaves it on."""
-        if not self.det:
-            self.detect(True)
-        det = self.det
-        det.ready.wait(6)
-        if det.error:
-            raise Lite3Error('detector failed: %s' % det.error)
-        self.stop_asked = False
-        return move(self.bot, det, stop_distance=FORWARD_STOP_M, abort=lambda: (
-            'E-STOP' if self.estopped else 'cancelled' if self.stop_asked else None), **kw)
 
     # --- hold-to-drive ---------------------------------------------------
     def drive(self, vx, wz):
@@ -402,12 +371,7 @@ class Robot:
         s = b.state
         p = b.pose
         f, r = b.ultrasound
-        det = self.det
-        if det and det.error:
-            self.log('person detection failed: %s' % det.error, 'error')
-            self.det = det = None
-        who = det and det.person()
-        goal, plan, them = self.intent(who)
+        goal, plan = self.intent()
         return {
             't': 'status',
             'basic': s.get('basic'), 'basic_text': BASIC.get(s.get('basic'), '?'),
@@ -418,11 +382,8 @@ class Robot:
             'camera': self.services['camera'], 'voa': self.services['voa'],
             'busy': self.busy, 'driving': self.driving, 'blocked': self.blocked,
             'estopped': self.estopped, 'scan': self.scan,
-            # the box is left, top, right, bottom as fractions of the front camera's picture
-            'detect': det is not None,
-            'person': [round(who[k], 3) for k in ('left', 'top', 'right', 'bottom')] if who else None,
-            # for the 3D view, in odom: Nav2's goal and path, and where the person is
-            'goal': goal, 'plan': plan, 'them': them,
+            # for the 3D view, in odom: Nav2's goal and path
+            'goal': goal, 'plan': plan,
             'floors': self.floors, 'map': self.on_map(), 'mapping': self.mapping,
             'limits': LIMITS,
         }
@@ -445,15 +406,14 @@ class Robot:
         pts = m.poses[::step] + m.poses[-1:]
         self.plan = [[round(q.pose.position.x, 2), round(q.pose.position.y, 2)] for q in pts]
 
-    def intent(self, who):
-        """His goal (x, y, yaw), Nav2's path to it and where the person `who` is, each
-        None when there is none. Also puts goal and person on /intent/... for rviz."""
-        from geometry_msgs.msg import PointStamped, PoseStamped
+    def intent(self):
+        """His goal (x, y, yaw) and Nav2's path to it, each None when there is none.
+        Also puts the goal on /intent/goal for rviz."""
+        from geometry_msgs.msg import PoseStamped
         b = self.bot
         goal = b.goal if b.goal_active() else None
         if goal is None:
             self.plan = None                    # the path of a goal that is over
-        them = person.where(b.pose, who, self.scan or []) if who and b.pose else None
         # Stamp left at zero: 'wherever odom is now' to rviz.
         if goal:
             m = PoseStamped()
@@ -461,13 +421,7 @@ class Robot:
             m.pose.position.x, m.pose.position.y = goal[0], goal[1]
             m.pose.orientation.z, m.pose.orientation.w = math.sin(goal[2] / 2), math.cos(goal[2] / 2)
             self._goal_pub.publish(m)
-        if them:
-            m = PointStamped()
-            m.header.frame_id = 'odom'
-            m.point.x, m.point.y = them
-            self._them_pub.publish(m)
-        return ([round(v, 2) for v in goal] if goal else None, self.plan if goal else None,
-                [round(v, 2) for v in them] if them else None)
+        return [round(v, 2) for v in goal] if goal else None, self.plan if goal else None
 
     def model(self):
         """Where the 3D model's joints and body are, or None before the first joint states."""
@@ -511,9 +465,6 @@ class Robot:
                 self.bot.estop()
                 self.bot.sit()
         finally:
-            if self.det:
-                self.det.stop()
-                self.det.join(2)                # it switches the tracker's detection off on the way out
             self.bot.close()
 
 
@@ -639,16 +590,6 @@ class Server:
         elif k in ('camera', 'voa'):
             r.submit('%s %s' % (k, 'on' if c.get('on') else 'off'),
                      r.service, k, bool(c.get('on')))
-        elif k in ('approach', 'follow'):
-            # the page's speed slider; without it, person.py's own default
-            kw = {'speed': clamp(abs(float(c['speed'])), DRIVE_MAX_VX)} if c.get('speed') else {}
-            if k == 'follow':
-                kw['seconds'] = FOLLOW_S
-            # With Nav2 up, a follow goes round what is in the way.
-            via_nav = k == 'follow' and r.bot.nav_running
-            r.submit(k, lambda: r.to_person(person.follow_nav if via_nav else getattr(person, k), **kw))
-        elif k == 'person':
-            r.detect(bool(c.get('on')))
         elif k == 'watch' and c.get('cam') == 'realsense':
             (self.rs_pages.add if c.get('on') else self.rs_pages.discard)(ws)
             self.rs_update()

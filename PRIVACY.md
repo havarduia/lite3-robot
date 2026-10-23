@@ -13,12 +13,12 @@ fill in.
 
 | | |
 |---|---|
-| Controller (behandlingsansvarlig) | __________ (e.g. University of Agder, department of __________) |
-| Contact for the robot | __________ |
-| Data protection officer (personvernombud) | __________ |
-| Legal basis (GDPR art. 6) | __________ (to be decided with the data protection officer) |
-| Notified to Sikt | __________ (yes / no / not needed, and the reference) |
-| DPIA done | __________ (date, or why not needed) |
+| Controller (behandlingsansvarlig) | Universitetet i Agder (University of Agder, UiA) |
+| Contact for the robot | Håvard Karlsen Solheim, haavardkso@gmail.com |
+| Data protection officer (personvernombud) | UiA's data protection officer: personvernombud@uia.no, Postboks 422, 4604 Kristiansand |
+| Legal basis (GDPR art. 6) | Not decided yet: to be agreed with the data protection officer |
+| Notified to Sikt | Not yet asked |
+| DPIA done | Not yet |
 
 ## What the robot collects
 
@@ -27,13 +27,13 @@ fill in.
 | Live video, front camera and RealSense colour | Yes: faces of people in view | Only to logged-in panel pages, while a page shows that camera. Not stored by the panel. | Not kept |
 | Front camera frames during a measured run (`bin/run.py --frames`) | Yes | Saved on the Orin during the run, then copied to the laptop's `logs/` | **1 hour** after the run stops, then deleted by `bin/run.py purge` (cron, every 5 minutes, on the laptop) |
 | Text an operator types for him to say | Only if someone types personal data | Spoken by Piper on the perception computer; shown in the panel's chat | Panel: the last 80 lines, in memory, gone when the panel restarts |
-| Person detection boxes | Low: a box's position, no image | Robot only (the tracker runs on the motion computer's chip) | Not kept |
 | Depth cloud, lidar scans, floor maps | Low: shapes, no faces | Robot, Orin, laptop | Maps until deleted; run bags as long as the run folder |
-| Panel log, `/tmp/hmi.log`, `/tmp/follow_nav.log` | No (commands and positions) | Perception computer | Until the next reboot (`/tmp`) |
+| Panel log, `/tmp/hmi.log` | No (commands and positions) | Perception computer | Until the next reboot (`/tmp`) |
 
 There is no microphone input: the robot only speaks. Nothing is sent to an
 AI service or any other third party: the Google Gemini chat, which could send
-camera frames to the USA, was removed on 2026-10-23.
+camera frames to the USA, was removed on 2026-10-23. So was person detection:
+nothing looks for people in the camera picture.
 
 ## How it is protected
 
@@ -73,7 +73,7 @@ Anyone can also complain to Datatilsynet (datatilsynet.no).
 
 ## Open tasks
 
-- [ ] Fill in the table under "Who is responsible" with the data protection officer.
+- [ ] Agree the legal basis with UiA's data protection officer, and fill it in above.
 - [ ] Ask whether the project needs a Sikt notification and a DPIA. Camera
       monitoring in shared spaces with new technology usually needs a DPIA.
 - [ ] On the robot: delete `~/.gemini_key` and `robot/persona_private.py`

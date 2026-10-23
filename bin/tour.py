@@ -6,7 +6,7 @@
     python3 ~/robot/bin/tour.py "goto 2.5, goto 1.5 90"  # Nav2: routes around obstacles
     python3 ~/robot/bin/tour.py --interactive            # type steps one at a time
     python3 ~/robot/bin/tour.py --speed 0.2 "walk 3"
-    python3 ~/robot/bin/tour.py --finale "Hello, welcome to the lab." "person"
+    python3 ~/robot/bin/tour.py --finale "Hello, welcome to the lab." "goto 2"
 
 Steps (comma separated, or one per line with --interactive):
     walk <m>            straight line, stops for obstacles within --stop
@@ -16,12 +16,9 @@ Steps (comma separated, or one per line with --interactive):
                         closest free distance on that line
     approach <m>        Nav2 toward <m> ahead, stopping short of the FIRST
                         obstacle on that line
-    person              walk up to the nearest person, stopping at --stop
-    follow <s>          follow that person for <s> seconds
 
 He stands first and sits at the end, and skips a step that fails. At the end
-he says --finale, tilted up at whoever is in front of him, or how far he
-walked. The speech is Piper, on this computer: nothing goes online.
+he says --finale, tilted up (--look-up), or how far he walked. The speech is Piper, on this computer: nothing goes online.
 Without --handheld it sends its own heartbeat, so Ctrl-C (an e-stop) and the
 power switch are the only stops. More in docs/tools.md.
 """
@@ -40,7 +37,7 @@ from robot.talk import Voice
 DONE = 'That was my walk: %.1f metres.'
 APPROACH_MARGIN = 0.2  # stop this far short of the last free cell
 MIN_GOAL = 0.5         # set when xy_goal_tolerance was 0.25 (0.15 now): a nearer goal "arrives" at once and he only turns
-STEPS = 'walk <m> | turn <deg> | goto <m> [<deg>] | approach <m> | person | follow <s>'
+STEPS = 'walk <m> | turn <deg> | goto <m> [<deg>] | approach <m>'
 
 
 def settled_profile(bot, out_to):
@@ -54,8 +51,7 @@ def settled_profile(bot, out_to):
 def parse_step(step):
     """'walk 1.5' -> ('walk', [1.5]); 'goto 2 90' -> ('goto', [2.0, 90.0])"""
     verb, *args = step.split()
-    nargs = {'walk': (1,), 'turn': (1,), 'goto': (1, 2), 'approach': (1,),
-             'person': (0,), 'follow': (1,)}
+    nargs = {'walk': (1,), 'turn': (1,), 'goto': (1, 2), 'approach': (1,)}
     if verb not in nargs or len(args) not in nargs[verb]:
         raise ValueError('bad step %r: use  %s' % (step, STEPS))
     return verb, [float(x) for x in args]
@@ -99,17 +95,6 @@ class Odometer(threading.Thread):
             self.last = p[:2]
 
 
-def follow(bot, a, det, seconds):
-    """Follow the person for `seconds`, in pieces under steer()'s 30 s ceiling."""
-    from robot import person
-    end = time.time() + seconds
-    while time.time() < end - 1.0:
-        r = person.follow(bot, det, min(end - time.time(), 29.0), stop_distance=a.stop, speed=a.speed)
-        print('\n[followed: moved %.2f m, %s]' % (r['moved'], r['reason']), flush=True)
-        if r['reason'] != 'time limit':       # lost them, or no depth: stop
-            break
-
-
 def goto_step(bot, want, *heading):
     """goto <m> [<deg>]: a Nav2 goal <m> ahead, or at the free distance closest
     to that if the spot itself is inside an obstacle."""
@@ -135,16 +120,9 @@ def goto_step(bot, want, *heading):
         want, status_text(status), dist(start, there), dist(there, bot.wait_pose())))
 
 
-def run_step(bot, a, verb, args, det=None):
+def run_step(bot, a, verb, args):
     try:
-        if verb == 'person':
-            from robot import person
-            det.ready.wait(6)
-            r = person.approach(bot, det, stop_distance=a.stop, speed=a.speed)
-            print('\n[person: moved %.2f m, %s]' % (r['moved'], r['reason']))
-        elif verb == 'follow':
-            follow(bot, a, det, args[0])
-        elif verb == 'walk':
+        if verb == 'walk':
             # walk() samples the depth camera at 4 Hz and has no slow-down
             # ramp, so give it half a second of travel as extra margin.
             r = bot.walk(args[0], speed=a.speed,
@@ -192,15 +170,15 @@ def start_nav(bot):
     print('[Nav2 up]', flush=True)
 
 
-def run_route(bot, a, route, det, track):
+def run_route(bot, a, route, track):
     """Every step of the route (typed ones if it is None)."""
     for verb, args in steps_from_stdin() if route is None else route:
-        run_step(bot, a, verb, args, det)
+        run_step(bot, a, verb, args)
         track.sample()
 
 
 def finale(bot, a, voice):
-    """Say --finale, tilted up at the person in front of him."""
+    """Say --finale, tilted nose-up (--look-up) to face whoever is in front of him."""
     with (bot.tilt(a.look_up, settle=0.3) if a.look_up
           else contextlib.nullcontext()):
         print('\n%s' % a.finale, flush=True)
@@ -215,7 +193,7 @@ def main():
     ap.add_argument('--speed', type=float, default=0.3,
                     help='m/s, max 0.6. Below ~0.2 the gait shuffles and drifts '
                          'sideways. walk steps add speed * 0.5 s to --stop as '
-                         'reaction margin; person slows down near the target')
+                         'reaction margin')
     ap.add_argument('--stop', type=float, default=1.0,
                     help='obstacle stop distance in metres, measured from the '
                          'BODY CENTRE: the nose is ~0.33 m ahead of it, so '
@@ -238,37 +216,28 @@ def main():
                          'the body centre the distance is measured from); the '
                          'camera cannot see that close either. Use >= 0.4.' % a.stop)
 
-    det = None
-    if a.interactive or any(v in ('person', 'follow') for v, _ in route):
-        from robot import person
-        det = person.PersonDetector()
-        det.start()
-
     voice = Voice()
-    try:
-        from robot.lite3 import Lite3
-        # upright(): arm, stand, and on the way out sit FIRST; close() then
-        # disarms SECOND.
-        with Lite3() as bot, bot.upright(heartbeat=a.heartbeat):
-            track = Odometer(bot)
-            try:
-                if use_nav:
-                    start_nav(bot)
-                track.reset()
-                run_route(bot, a, route, det, track)
-                if a.finale:
-                    finale(bot, a, voice)
-            finally:
-                bot.halt()
-                if use_nav:
-                    bot.nav_stop()
-        if not a.finale:
-            print('\n' + DONE % track.total, flush=True)
-            voice.say(DONE % track.total, voice=a.voice)
-        return 0
-    finally:
-        if det:
-            det.stop()
+    from robot.lite3 import Lite3
+    # upright(): arm, stand, and on the way out sit FIRST; close() then
+    # disarms SECOND.
+    with Lite3() as bot, bot.upright(heartbeat=a.heartbeat):
+        track = Odometer(bot)
+        try:
+            if use_nav:
+                start_nav(bot)
+            track.reset()
+            run_route(bot, a, route, track)
+            if a.finale:
+                finale(bot, a, voice)
+        finally:
+            bot.halt()
+            if use_nav:
+                bot.nav_stop()
+    if not a.finale:
+        print('\n' + DONE % track.total, flush=True)
+        voice.say(DONE % track.total, voice=a.voice)
+    return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())
