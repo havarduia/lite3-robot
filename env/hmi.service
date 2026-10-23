@@ -1,0 +1,25 @@
+# Install on the perception computer (stop a hand-started panel first, or it holds :8080):
+#   pkill -f '^python3 -m robot.hmi'
+#   sudo cp ~/robot/env/hmi.service /etc/systemd/system/ && sudo systemctl enable --now hmi
+# Then: systemctl status hmi, sudo systemctl restart hmi, tail -f /tmp/hmi.log.
+# Stopping it (SIGTERM) sits him down first, like Ctrl-C.
+[Unit]
+Description=Lite3 web control panel on :8080 (robot/hmi.py)
+After=network-online.target tailscaled.service lio_relay.service
+Wants=network-online.target
+
+[Service]
+User=ysc
+Environment=PYTHONUNBUFFERED=1 LOCALIZER=cloud
+# The same log as when started by hand (hmi.py's log() says so). Opened by the shell, as
+# ysc: systemd's append:/tmp/hmi.log opens it as root, which protected_regular refuses
+# for a file in /tmp that ysc owns.
+ExecStart=/bin/bash -c 'source /home/ysc/robot/env/lite3_env.sh && cd /home/ysc/robot && exec python3 -m robot.hmi >> /tmp/hmi.log 2>&1'
+# Also covers boot: it binds the Tailscale address, which may not be up yet.
+Restart=always
+RestartSec=3
+# Room to sit him down before the kill.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
