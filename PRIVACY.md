@@ -46,8 +46,12 @@ camera frames to the USA, was removed on 2026-10-23.
   and are deleted an hour after the run stops.
 - **Camera streams.** The motion computer's stream server (mediamtx) has no
   password, so its ports only answer the perception computer and the Orin
-  (`env/robot-nat.sh`). Everyone else sees the cameras through the panel's
-  login or not at all.
+  (`env/robot-nat.sh`), and the motion computer takes no connections from
+  the tailnet (`tailscale set --shields-up=true`: its Tailscale runs in
+  userspace mode, which reaches local ports over loopback, where a firewall
+  cannot tell it from the camera's own push). Everyone else sees the cameras
+  through the panel's login or not at all. Tested 2026-10-23 from the robot's
+  wifi and the tailnet: closed.
 - **Network.** The panel is reachable only on the tailnet and on the robot's
   own wifi (password-protected). Traffic over Tailscale is end-to-end encrypted;
   the panel itself is plain HTTP, so use the Tailscale address or

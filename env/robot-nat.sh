@@ -21,6 +21,8 @@ iptables -t nat -C PREROUTING -i p2p0 -d 192.168.2.1 -p udp --dport 8190 -j DNAT
 # rs_stream.py) and the Orin (bin/run.py --frames) may reach them, and this
 # computer itself over loopback: push_video.sh publishes the front camera that way,
 # and loopback traffic does pass PREROUTING (2026-10-23: without it, no picture).
+# Tailscale here runs in userspace mode and reaches local ports over loopback too,
+# so the tailnet is shut out by `tailscale set --shields-up=true` instead (PRIVACY.md).
 # In the mangle table,
 # at the top: Tailscale's ts-input chain (filter) accepts all tailnet traffic
 # before any filter rule, and this kernel has no raw table (CONFIG_IP_NF_RAW).

@@ -22,7 +22,8 @@ The robot's wifi is `YSC-JYML-pr3gdi-5G`. A laptop on it gets a
 ssh ysc@lite3-perception                               # over Tailscale
 ssh -J ysc@192.168.2.1 ysc@192.168.1.103               # from the robot's wifi, no Tailscale
 # from the perception computer, keys are already set up:
-ssh ysc@192.168.1.120                                  # motion computer
+ssh ysc@192.168.1.120                                  # motion computer (not over the tailnet:
+                                                       # it is in shields-up mode, PRIVACY.md)
 ssh lite3@192.168.1.5                                  # Orin
 ```
 
