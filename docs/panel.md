@@ -4,17 +4,14 @@
 python3 -m robot.hmi     # then open http://lite3-perception:8080
 ```
 
-**Login and public mode** (2026-10-23, [PRIVACY.md](../PRIVACY.md)). Every
+**Login** (2026-10-23, [PRIVACY.md](../PRIVACY.md)). Every
 page and request needs a login first: one password, in
 `~/.lite3_panel_password` on the perception computer, made at the panel's
 first start. A login lasts 30 days on that browser, in an HttpOnly,
 SameSite=Strict cookie derived from the password, so changing the password
 (delete the file, restart the panel) logs everyone out. A wrong password
 costs a second. `robot/rviz.py` sends the same key in an `X-Panel-Key`
-header. **Public mode** (System, on at every boot: its off switch is a file
-in `/tmp`) keeps camera frames away from Gemini: Look and comment is greyed
-out, `talk.py` refuses to look, and an amber chip in the top bar shows while
-it is off.
+header.
 
 An `aiohttp` server on the **Tailscale VPN address**, so nothing on the
 public Wi-Fi can reach it, and on the robot's own network (`eth0`,
@@ -64,7 +61,7 @@ CDN: even its typeface, B612, is embedded) with:
   of Follow lasts 30 s, the ceiling on any single
   move. Cancel and E-STOP end either within one 50 ms cycle (the `abort`
   argument of both functions), and so does the page going away, as for a Go;
-- say / ask / look with a persona picker, all three in that persona's voice;
+- Say it: text spoken aloud through Piper (offline), with a volume fader;
 - an always-visible **E-STOP** (also the space bar) that bypasses the command
   queue and calls `Lite3.estop()` directly;
 - **Cancel**, shown while a Go is under way: ends it and leaves Nav2 running.
@@ -108,7 +105,6 @@ switch, measured 2026-10-19:
 |---|---|---|
 | down / up | ~20 / 27 Mbit/s | ~30 / 60-85 Mbit/s |
 | ping 1.1.1.1 (avg / max) | 7.4 / 8.4 ms | 11.2 / 78 ms |
-| Gemini Live, first sound | 0.7-0.8 s | 0.6-2.1 s |
 
 Less bandwidth (the Orin's uplink stays at 27 Mbit/s with one stream or
 four, and with its power saving off), but steady, which is what the drive

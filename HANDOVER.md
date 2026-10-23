@@ -44,12 +44,9 @@ robot.
       then update this file.
 - [ ] **Eduroam.** The Orin is the robot's only way to the internet, and it
       signs in to eduroam with a personal `@uia.no` account (NetworkManager
-      connection `eduroam` on the Orin). Without internet, Gemini and the
-      Tailscale relay stop working. Replace it with a lab or service account.
-- [ ] **Gemini API key.** It is in `~/.gemini_key` on the perception computer
-      and belongs to Håvard Karlsen Solheim's personal Google account. Replace
-      it with a lab-owned key: write the new key into that file
-      (`chmod 600`), then `sudo systemctl restart hmi`.
+      connection `eduroam` on the Orin). Without internet,
+      the Tailscale relay and `play_url` stop working. Replace it with a lab or service account.
+- Gemini was removed on 2026-10-23, so there is no API key to hand over.
 - **Who to ask:** Håvard Karlsen Solheim, haavardkso@gmail.com, who built
   this repository.
 

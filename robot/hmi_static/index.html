@@ -345,7 +345,6 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
       <span class="chip" id="s-post" aria-label="posture">–</span>
       <span class="chip lamp off" id="busy">Idle</span>
       <span class="chip lamp off" id="t-nav">Nav2 –</span>
-      <span class="chip lamp busy" id="t-pub" title="Camera frames may go to Gemini: only where everyone in view has agreed" hidden>Public mode off</span>
       <span class="chip lamp off" id="s-hb" title="While the heartbeat is on he obeys this panel with no handheld switched on">Heartbeat –</span>
     </div>
     <div class="act">
@@ -492,8 +491,6 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
     <section class="pane" id="sys" data-tab="sys">
       <div class="head"><h2>Systems</h2></div>
       <div class="rows">
-        <div><span class="what">Public mode<small>Look is off: no camera frame goes to Gemini. Back on at every boot</small></span>
-          <button class="switch" role="switch" aria-checked="true" aria-label="Public mode" data-cmd="public" data-toggle id="k-public"></button></div>
         <div><span class="what">Nav2<small>path planning</small></span>
           <button class="switch" role="switch" aria-checked="false" aria-label="Nav2" data-cmd="nav" data-toggle id="k-nav"></button></div>
         <div><span class="what">Depth camera<small>RealSense, obstacle stops</small></span>
@@ -508,23 +505,13 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
     <section class="pane" id="talk" data-tab="talk">
       <div class="head"><h2>Talk</h2></div>
       <div class="line">
-        <label for="persona">Persona</label>
-        <select id="persona"></select>
-      </div>
-      <div class="line" title="The voice of his answers. Say it, and Look and comment, keep his own">
-        <label for="voice">Voice</label>
-        <select id="voice"></select>
-      </div>
-      <div class="line">
         <label for="volume">Volume</label>
         <input type="range" id="volume" min="0" max="100" step="5" value="100">
         <output id="volume-v" for="volume">100 %</output>
       </div>
-      <textarea id="talk-text" placeholder="Words for him to say, or a question" aria-label="text to say, or a question"></textarea>
+      <textarea id="talk-text" placeholder="Words for him to say" aria-label="text for him to say"></textarea>
       <div class="line">
-        <button class="key go" data-talk="ask">Ask</button>
-        <button class="key" data-talk="say">Say it</button>
-        <button class="key" data-talk="look" id="k-look" title="Off in public mode (System)">Look and comment</button>
+        <button class="key go" data-talk="say">Say it</button>
       </div>
       <div id="chat"></div>
     </section>
@@ -569,16 +556,6 @@ function connect() {
     else if (m.t === 'log') addLog(m);
     else if (m.t === 'said') addChat(m);
     else if (m.t === 'hello') {
-      const sel = $('persona'); sel.innerHTML = '';
-      for (const p of m.personas) {
-        const o = document.createElement('option'); o.value = o.textContent = p;
-        if (p === m.persona) o.selected = true; sel.appendChild(o);
-      }
-      const vs = $('voice'); vs.innerHTML = '';
-      for (const v of m.voices || []) {
-        const o = document.createElement('option'); o.value = o.textContent = v;
-        if (v === m.voice) o.selected = true; vs.appendChild(o);
-      }
       $('volume').value = Math.round(m.volume * 100); showVolume();
       $('log').innerHTML = ''; $('chat').innerHTML = '';
       for (const l of m.log) (l.t === 'said' ? addChat : addLog)(l);
@@ -650,7 +627,6 @@ function renderStatus(s) {
   // The detector looks through the front camera, so its box sits on that picture.
   const p = s.person, who = $('who');
   sw('k-person', s.detect);
-  sw('k-public', s.public); $('t-pub').hidden = s.public !== false; $('k-look').disabled = s.public !== false;
   $('s-who').textContent = !s.detect ? 'Off' : !p ? 'Nobody'
     : (p[0] + p[2]) / 2 < 0.4 ? 'Left' : (p[0] + p[2]) / 2 > 0.6 ? 'Right' : 'Ahead';
   $('s-who').className = 'lamp' + (p ? '' : ' off');
@@ -1042,10 +1018,9 @@ $('estop').addEventListener('click', pressEstop);
 const showVolume = () => { $('volume-v').textContent = $('volume').value + ' %'; };
 $('volume').addEventListener('input', showVolume);
 $('volume').addEventListener('change', () => send({ cmd: 'volume', v: $('volume').value / 100 }));
-$('voice').addEventListener('change', () => send({ cmd: 'voice', v: $('voice').value }));
 document.querySelectorAll('[data-talk]').forEach(b => b.addEventListener('click', () => {
-  send({ cmd: b.dataset.talk, text: $('talk-text').value, persona: $('persona').value });
-  if (b.dataset.talk !== 'look') $('talk-text').value = '';
+  send({ cmd: b.dataset.talk, text: $('talk-text').value });
+  $('talk-text').value = '';
 }));
 // Cameras play as H.264 over WebRTC (full rate, low delay). If that does not
 // connect within a few seconds, the front camera falls back to MJPEG.

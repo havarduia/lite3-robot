@@ -132,8 +132,7 @@ def _swing(wz, sides, sweep):
     return 0.0 if (wz > 0 and left < sweep) or (wz < 0 and right < sweep) else wz
 
 
-def _controller(bot, det, stop_distance, speed, hold, near=None, near_distance=1.0,
-                abort=None, view=None):
+def _controller(bot, det, stop_distance, speed, hold, abort=None, view=None):
     """The per-cycle control behind approach() and follow(): turn to keep the
     person centred (never into something inside TURN_SWEEP), walk while they
     are centred, slow over the last SLOW_ZONE metres, and turn after a person
@@ -142,7 +141,7 @@ def _controller(bot, det, stop_distance, speed, hold, near=None, near_distance=1
     view() -> (clearance, side_clear), for a caller that scans already.
     """
     from .lite3 import TURN_SWEEP         # here, not on top: lite3 needs ROS
-    state = {'lost_since': None, 'near_done': near is None, 'off': 0.0,
+    state = {'lost_since': None, 'off': 0.0,
              'arrived': False, 'aimed': False}
 
     def read():
@@ -178,9 +177,6 @@ def _controller(bot, det, stop_distance, speed, hold, near=None, near_distance=1
             return 0.0, swing(0.0 if abs(last) < CENTRED or gone > GIVE_UP
                               else -SEARCH_TURN if last > 0 else SEARCH_TURN)
         state['lost_since'] = None
-        if not state['near_done'] and clear <= stop_distance + near_distance:
-            state['near_done'] = True
-            near()
         off = state['off'] = p['x'] - 0.5         # +ve = person to the right
         wz = swing(clamp(-K_TURN * off, MAX_TURN)) if abs(off) >= AIM else 0.0
         if clear <= stop_distance + (RESUME if state['arrived'] else 0.0):
@@ -200,14 +196,11 @@ def _controller(bot, det, stop_distance, speed, hold, near=None, near_distance=1
     return control
 
 
-def approach(bot, det, stop_distance=0.6, speed=0.3, limit=30.0,
-             near=None, near_distance=1.0, abort=None):
+def approach(bot, det, stop_distance=0.6, speed=0.3, limit=30.0, abort=None):
     """Turn to and walk up to the detected person, stopping stop_distance (from
-    the body centre) short. near(), if given, is called once from the control
-    loop when he is within near_distance of that. Returns steer()'s result.
+    the body centre) short. Returns steer()'s result.
     """
-    return bot.steer(_controller(bot, det, stop_distance, speed, False,
-                                 near, near_distance, abort), limit=limit)
+    return bot.steer(_controller(bot, det, stop_distance, speed, False, abort), limit=limit)
 
 
 def follow(bot, det, seconds, stop_distance=0.6, speed=0.3, abort=None):

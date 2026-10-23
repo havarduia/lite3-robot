@@ -68,22 +68,6 @@ def panel_password_ok(given):
     return hmac.compare_digest(given.encode(), password.encode())
 
 
-# Public mode (PRIVACY.md): no camera frame goes to Gemini. It is the default, and
-# the flag that lifts it is in /tmp, so every boot starts in public mode again.
-PRIVATE_AREA_FLAG = '/tmp/lite3_private_area'
-
-
-def public_mode():
-    return not os.path.exists(PRIVATE_AREA_FLAG)
-
-
-def set_public_mode(on):
-    if on:
-        if os.path.exists(PRIVATE_AREA_FLAG):
-            os.remove(PRIVATE_AREA_FLAG)
-    else:
-        open(PRIVATE_AREA_FLAG, 'w').close()
-
 
 class Lite3Error(RuntimeError):
     """Refused for a reason the caller can act on."""

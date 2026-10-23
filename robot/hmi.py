@@ -184,8 +184,6 @@ class Robot:
         self.services = {'camera': None, 'voa': None}
         self.scan = None
         self._warned = {}                       # msg -> time, to stop log spam
-        self.talker = None
-        self.persona = None
         self.det = None                         # PersonDetector while detection is on
         self.stop_asked = False                 # Cancel, for a walk to or after a person
         self.joints = None                      # name -> angle, for the 3D model
@@ -205,7 +203,6 @@ class Robot:
         self.bot._node.create_subscription(Path, '/plan', self._plan_cb, 1)
         self._goal_pub = self.bot._node.create_publisher(PoseStamped, '/intent/goal', 1)
         self._them_pub = self.bot._node.create_publisher(PointStamped, '/intent/person', 1)
-        self.talk_pool.submit(self._warm_talk)
 
     # --- commands --------------------------------------------------------
     def log(self, msg, level=None):
@@ -310,9 +307,9 @@ class Robot:
         return status_text(status)
 
     def say(self, what):
-        """One of SAY aloud, in the persona's voice, beside whatever he is doing."""
+        """One of SAY aloud, beside whatever he is doing."""
         if what in SAY:
-            self.talk('say', SAY[what], self.persona)
+            self.talk(SAY[what])
 
     def service(self, which, on):
         self.services[which] = getattr(P, which)(on)
@@ -387,52 +384,17 @@ class Robot:
             self.driving = False
             self.blocked = None
 
-    # --- talking ---------------------------------------------------------
-    def _warm_talk(self):
-        """Load the voice and open the chat session now. Left to the first
-        question they cost it about 6 s (Piper 3.9 s, Gemini Live 1.9 s, 2026-10-07).
-        On the talk thread, so a question asked meanwhile waits for it. Also how a
-        new Gemini voice takes effect: a session keeps the voice it was opened with."""
+    # --- talking: Piper here, out of his speaker; nothing goes online ----
+    def talk(self, text):
+        self.talk_pool.submit(self._talk, text)
+
+    def _talk(self, text):
         try:
-            from .talk import Talker, PERSONA
-            if self.talker:
-                self.talker.close()
-                self.talker = None
-            self.persona = self.persona or PERSONA
-            self.talker = Talker(persona=self.persona)
-            self.talker.live.warm()
+            from .talk import Voice
+            self.emit({'t': 'said', 'who': 'robot', 'text': text})
+            Voice().say(text)
         except Exception as e:                  # talking unavailable, driving is not
-            self.log('talk is not ready: %s' % e, 'warn')
-
-    def voice(self, name):
-        from . import talk
-        if name in talk.GEMINI_VOICES and name != talk.GEMINI_VOICE:
-            talk.GEMINI_VOICE = name
-            self.talk_pool.submit(self._warm_talk)
-
-    def talk(self, kind, text, persona):
-        self.talk_pool.submit(self._talk, kind, text, persona)
-
-    def _talk(self, kind, text, persona):
-        try:
-            from .talk import Talker, PERSONA
-            persona = persona or PERSONA
-            if self.talker is None or self.persona != persona:
-                if self.talker:
-                    self.talker.close()
-                self.talker = Talker(persona=persona)
-                self.persona = persona
-            said = lambda s: self.emit({'t': 'said', 'who': 'robot', 'text': s})
-            if kind == 'say':               # in the persona's voice, like its replies
-                self.talker.say(text, on_sentence=said)
-            elif kind == 'ask':
-                self.emit({'t': 'said', 'who': 'you', 'text': text})
-                self.talker.ask(text, on_sentence=said)
-            else:
-                self.emit({'t': 'said', 'who': 'you', 'text': '(look) ' + (text or 'what do you see?')})
-                self.talker.look(text or None, on_sentence=said)
-        except Exception as e:
-            self.log('%s failed: %s' % (kind, e), 'error')
+            self.log('say failed: %s' % e, 'error')
 
     # --- status ----------------------------------------------------------
     def status(self):
@@ -462,7 +424,6 @@ class Robot:
             # for the 3D view, in odom: Nav2's goal and path, and where the person is
             'goal': goal, 'plan': plan, 'them': them,
             'floors': self.floors, 'map': self.on_map(), 'mapping': self.mapping,
-            'public': P.public_mode(),
             'limits': LIMITS,
         }
 
@@ -553,8 +514,6 @@ class Robot:
             if self.det:
                 self.det.stop()
                 self.det.join(2)                # it switches the tracker's detection off on the way out
-            if self.talker:
-                self.talker.close()
             self.bot.close()
 
 
@@ -622,18 +581,8 @@ class Server:
         ws = web.WebSocketResponse(heartbeat=PING_S)
         await ws.prepare(request)
         self.pages.add(ws)
-        try:
-            from . import talk
-            from .talk import PERSONAS, PERSONA
-            personas, persona = sorted(PERSONAS), PERSONA
-        except Exception as e:                  # talking unavailable, driving is not
-            personas, persona = [], None
-            self.robot.log('talk unavailable: %s' % e, 'warn')
-        await ws.send_str(json.dumps({'t': 'hello', 'personas': personas,
-                                      'persona': persona, 'log': self.log,
-                                      'voices': talk.GEMINI_VOICES if personas else [],
-                                      'voice': talk.GEMINI_VOICE if personas else None,
-                                      'volume': talk.VOLUME if personas else 1.0}))
+        from . import talk
+        await ws.send_str(json.dumps({'t': 'hello', 'log': self.log, 'volume': talk.VOLUME}))
         try:
             async for m in ws:
                 if m.type != WSMsgType.TEXT:
@@ -708,14 +657,10 @@ class Server:
         elif k == 'volume':
             from . import talk
             talk.VOLUME = min(1.0, max(0.0, float(c['v'])))
-        elif k == 'voice':
-            r.voice(c.get('v'))
-        elif k == 'public':
-            P.set_public_mode(bool(c.get('on')))
-            r.log('public mode ' + ('on: looking is off' if c.get('on') else 'OFF: camera frames may go to Gemini'),
-                  None if c.get('on') else 'warn')
-        elif k in ('say', 'ask', 'look'):
-            r.talk(k, (c.get('text') or '').strip(), c.get('persona'))
+        elif k == 'say':
+            text = (c.get('text') or '').strip()
+            if text:
+                r.talk(text)
 
     async def floor_map(self, request):
         """A floor's map as the map server reads it (PGM); the page paints it."""

@@ -15,7 +15,7 @@ with Lite3() as bot:
 ```
 
 On top of that API: Nav2 navigation (mapless, or on a floor map), person
-following, a talking personality (Gemini), a scripted tour, keyboard
+following, speech through the robot's speaker, a scripted tour, keyboard
 teleop and a web control panel.
 
 ## The idea in one paragraph
@@ -122,7 +122,7 @@ robot/                 the library: `from robot.lite3 import Lite3`
   protocol.py          every UDP code and address; no ROS; also a raw-code CLI
   sonar_range.py       ROS node: sonars -> sensor_msgs/Range for Nav2
   person.py            person detection (the robot's built-in tracker) and following
-  talk.py              speaker, Piper TTS, Gemini chat, personas
+  talk.py              speaker: built-in clips, Piper text-to-speech (offline)
   hmi.py               web control panel server; the page is in hmi_static/
   rs_stream.py         RealSense colour -> H.264 video          (started by hmi.py)
   udp_relay.py         WebRTC video to the panel                 (started by hmi.py)
@@ -192,4 +192,3 @@ docs/                  the documentation; docs/history/ has lab notes
   (docs/navigation.md); mapless goals are relative to odometry, which drifts.
 - **`estop(disarm=True)`** while standing is untested.
 - Of the built-in tricks, only `dance` has been run on this robot.
-- The Gemini features need internet and an API key in `~/.gemini_key`.

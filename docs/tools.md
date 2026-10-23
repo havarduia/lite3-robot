@@ -1,6 +1,6 @@
 # Programs and tools
 
-## `bin/tour.py`: walk a route and comment on it
+## `bin/tour.py`: walk a route
 
 ```
 python3 bin/tour.py "walk 1.5, turn 90, goto 2 -90, person, follow 60"
@@ -9,21 +9,16 @@ python3 bin/tour.py "walk 1.5, turn 90, goto 2 -90, person, follow 60"
 Verbs: `walk <m>`, `turn <deg>`, `goto <m> [<deg>]` (Nav2), `approach <m>`,
 `person` (walk up to the nearest person), `follow <s>`. Flow: heartbeat →
 wait for the interlock → stand → (if needed) wait for the pose to settle and
-start Nav2 → for each step: move, stop, **look and talk** (it only talks while
-standing still; the motors are too loud while walking) → stop Nav2 → sit →
-drop heartbeat. A failed step is reported and skipped. `--finale "..."` ends
-with a custom line, optionally tilting the body up (`--look-up 12`) so the
-camera sees a face. An `Odometer` thread sums the actual path length for the
-closing sentence (summing start-to-end per step counted a 14 m follow as
-7.2 m).
+start Nav2 → each step → stop Nav2 → sit → drop heartbeat. A failed step is
+reported and skipped. At the end, still standing, he says `--finale "..."`
+(Piper, offline), tilting the body up (`--look-up 12`) to face the person, or
+otherwise how far he walked. An `Odometer` thread sums the actual path length
+for that (summing start-to-end per step counted a 14 m follow as 7.2 m).
+Until 2026-10-23 he also looked and commented after every step, through
+Gemini; that was removed (PRIVACY.md).
 
 `walk` steps add half a second of travel to `--stop`, because `walk()` samples
-the depth camera at 4 Hz and has no slow-down ramp. When the last step is
-`person`, the finale line is written during the last metre so he can speak on
-arrival (frame grab plus Gemini take 3–4 s), but only without `--look-up`:
-that frame is taken before the tilt and shows knees and shoes, so with
-`--look-up` the finale is done live after tilting, at the cost of ~3 s of
-silence.
+the depth camera at 4 Hz and has no slow-down ramp.
 
 ## `bin/teleop.py`: keyboard driving over SSH
 

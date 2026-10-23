@@ -241,8 +241,8 @@ The same from the command line: `python3 -m robot.lite3 floors`,
 
 ## What he says on a map goal
 
-A goal pressed on the panel's map (`go_point`) is spoken aloud in the
-persona's voice (`talk.say`: Gemini's voice, Piper offline), from fixed
+A goal pressed on the panel's map (`go_point`) is spoken aloud (`talk.Voice.say`,
+Piper, offline), from fixed
 lines in `robot/hmi.py`'s `SAY`: "On my way." once a route is found,
 "I'm here." on arrival, "I couldn't get there." when it fails or is
 refused, nothing when you cancel it.

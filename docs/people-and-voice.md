@@ -104,9 +104,9 @@ a 12-byte header `<code, json_length, 1>` then JSON, on port 43901.
     `goal blocked`, `no range on them`), and every change of state is written to
     `/tmp/follow_nav.log`. Read that first when he stands about.
 
-## Talking: speaker, TTS and Gemini
+## Talking: the speaker and text-to-speech
 
-`robot/talk.py`, three layers.
+`robot/talk.py`, two layers. Nothing is sent online except `play_url`.
 
 ### `Voice`: one sound at a time
 
@@ -119,8 +119,8 @@ text ─► Piper TTS ─► ffmpeg (to raw S16LE 48 kHz stereo, + 800 ms silenc
 
 - `play('OKstandup')`: one of the robot's ~33 built-in clips; plays entirely
   on the robot.
-- `say(text)`: Piper (neural TTS on the Jetson), through `Speaker` below, so
-  it sounds like a persona's reply. No Piper, no speech: there is no fallback.
+- `say(text)`: Piper (neural TTS on the Jetson, offline), through `Speaker`
+  below. No Piper, no speech: there is no fallback.
 - `play_file(path)`, `play_url(youtube_url)` (via `yt-dlp`).
 
 Details that were learned the hard way:
@@ -139,11 +139,11 @@ Details that were learned the hard way:
 What it needs: passwordless SSH from the Jetson to the motion computer; `ysc`
 in the `audio` group there (done 2026-09-15); `ffmpeg` on the Jetson; Piper in
 `~/piper` (the standalone aarch64 release, voices as `~/piper/<name>.onnx`);
-for `play_url`, standalone `yt-dlp` and `deno` binaries in `~/.local/bin`;
-for Gemini, a key in `~/.gemini_key`, `websockets` 13.1 (the last release for
-Python 3.8) and internet. The robot has its own internet (eduroam via the
-Orin, see "Driving across eduroam access points"). If it ever has none, run an HTTP CONNECT proxy on the
-laptop, forward its port over SSH and set `TALK_PROXY=http://localhost:3128`.
+for `play_url`, standalone `yt-dlp` and `deno` binaries in `~/.local/bin`
+and internet. The robot has its own internet (eduroam via the Orin, see
+"Driving across eduroam access points"). If it ever has none, run an HTTP
+CONNECT proxy on the laptop, forward its port over SSH and set
+`TALK_PROXY=http://localhost:3128`.
 
 ### `Speaker`: streaming, sentence by sentence
 
@@ -152,66 +152,10 @@ sentence; a pump thread feeds them into a single open `ffmpeg | ssh aplay`
 stream. The first sentence plays while the next is still being synthesised.
 It adds software gain with a limiter and sets the codec volume to max.
 
-### `Talker`: Gemini answers, in its own voice
+CLI: `python3 -m robot.talk say "text"`, `... play OKstandup`,
+`... file <path>`, `... url <link>`, `... clips`, `... voices`.
 
-- **Gemini Live** (default): one WebSocket session that keeps its own
-  conversation context. Live models answer in speech, with a transcript
-  alongside. **The speech is what you hear**: `Line` plays the samples
-  (24 kHz) on the robot's speaker as they arrive, and the transcript only
-  feeds the chat display. Session resumption handles dropped idle
-  connections; if no reply starts within 6 s it reconnects once.
-- **Why not Piper for replies** (it was, until 2026-10-07): the wait was on
-  our side, not Gemini's. Measured that day on the Jetson: Gemini's whole
-  reply in 0.5 s, then Piper 1.7-2.0 s to make each sentence, then 0.8 s of
-  lead-in silence, about 3 s before a sound; the first question after a
-  start also paid 3.9 s to load Piper and 1.9 s to open the session. Now
-  `Line` is opened before the question is sent, so the ssh to the speaker
-  and the lead-in pass while Gemini thinks, and the panel loads everything
-  at start: **sound begins 1.0-1.6 s after asking** (timed into a sink in
-  place of the speaker; the real speaker adds its ssh, about 0.4 s, where
-  that is not already hidden by the lead-in).
-- **Voices.** 30 of Gemini's (`python3 -m robot.talk gvoices`); the default
-  is `GEMINI_VOICE`, the panel's Voice box changes it, `--gvoice NAME` on
-  the command line. A session keeps the voice it was opened with, so a
-  change reopens it. Rocky's alien filter is applied to whichever voice.
-- **Everything he says goes through that session**, so it is all one voice:
-  - *Ask*: the session answers.
-  - *Look and comment*: the camera frame goes with the question as one turn
-    (`clientContent`), and stays in the session's context, so follow-ups
-    ("what colour is their top?") are answered from the picture. Sent as a
-    realtime video frame, as it was until 2026-10-07, the model answered
-    without having read it ("I am unable to see a picture"); looks went
-    over REST for that reason, and REST on the free tier often stalls for
-    its whole 12 s timeout (4 of 7 calls that evening).
-  - *Say it* (exact text), and any reply that did come over REST: the
-    session is asked to read the text aloud word for word (`READ_ALOUD`).
-    It did, 10 times of 10, starting in 0.5 s.
-- Timed on the robot 2026-10-07, into a sink in place of the speaker: an
-  ask or a say is heard after 1.0-1.2 s, a look after 3.4-5.4 s, about 2 s
-  of which is fetching the camera frame.
-- **Piper is the fallback**: it speaks only when the session cannot (no
-  connection, or a reply that arrived with no speech), in his old voice.
-- **REST** (`generateContent`) is the fallback for the words, if Live fails.
-  It keeps the last 20 messages and re-sends the most recent camera frame
-  so follow-ups still work. Requests time out at 12 s and retry three
-  times. The model name is an alias (`gemini-flash-lite-latest`) so a
-  retired version cannot break it, and "thinking" is turned down: it adds
-  seconds a spoken one-liner does not need.
-- `sentences()` regroups streamed text chunks into whole sentences so
-  speaking starts before the reply is complete.
-- `look(question)` grabs one 1280-px frame from the front camera (RTSP via
-  `ffmpeg`) and asks about it.
-- **Personas** (system prompts + voice): `deadpan` (default, safe for
-  visitors; jokes about the situation), `rocky` (Rocky from
-  *Project Hail Mary*, with an "alien" audio filter), `observer` (neutral, no
-  jokes; just says what is there). Private personas can go
-  in the git-ignored `persona_private.py`. Every persona, private ones too,
-  gets `PRIVACY_RULES` appended: never identify anyone or comment on personal
-  traits. `sarcastic`, which teased people, was removed 2026-10-23.
-- **Public mode** ([PRIVACY.md](../PRIVACY.md)): while it is on (the default
-  after every boot) `look()` refuses, and a frame kept from before is not
-  re-sent over REST.
-- The API key is read from `~/.gemini_key` (git-ignored).
-
-CLI: `python3 -m robot.talk` (chat), `... ask "hi"`, `... look`, `... say "text"`,
-`... play OKstandup`, `... url <link>`, `... clips`, `... voices`, `... gvoices`.
+Until 2026-10-23 a `Talker` here also chatted through Google Gemini, and
+could describe a front camera frame ("Look and comment"). It was removed:
+it sent camera frames and questions to Google in the USA, on a personal key,
+for what was mostly a gimmick (PRIVACY.md). It is in git history.

@@ -69,13 +69,6 @@ own failsafe stops it ~1.5 s after velocity commands stop arriving.
 **Why does the robot talk only when standing still?**
 The motors are too loud to hear the speaker while walking.
 
-**Why Gemini Live for the voice?**
-Live keeps the conversation's context and answers in speech, and since
-2026-10-07 that speech is what you hear: sound begins 1.0-1.6 s after
-asking. Piper made each sentence itself before that, which put about 3 s
-before the first sound. Piper is now the fallback when the session cannot
-speak ([people-and-voice.md](people-and-voice.md#talker-gemini-answers-in-its-own-voice)).
-
 **What did you change in vendor code?**
 Five patches ([Patches (env/*.patch)](environment.md#patches-envpatch)); the most important fixed a bug where every velocity
 command reached the robot twice, which made the vendor obstacle avoider
@@ -119,7 +112,6 @@ scripted-run wrapper nothing used) with it: `git show c4cfb84:archive/backups/RE
 | **CycloneDDS** | the DDS middleware ROS2 uses here (the default FastRTPS doesn't work on this robot) |
 | **RMW** | ROS middleware interface; selects the DDS implementation |
 | **Piper** | offline neural text-to-speech |
-| **Gemini Live** | Google's streaming WebSocket model API |
 | **MJPEG** | video as a stream of JPEG images; plays in any `<img>` tag |
 | **Tailscale** | VPN; the HMI is only reachable through it |
 | **dead-man switch** | control that stops the machine when the operator stops actively holding it |

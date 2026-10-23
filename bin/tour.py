@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""The robot walks a route and says what he sees along the way (--persona).
+"""The robot walks a route, and says a line at the end (--finale).
 
-    python3 ~/robot/bin/tour.py                          # walk 2 m forward, commenting
+    python3 ~/robot/bin/tour.py                          # walk 2 m forward
     python3 ~/robot/bin/tour.py "walk 1.5, turn 90, walk 1, turn -90"
     python3 ~/robot/bin/tour.py "goto 2.5, goto 1.5 90"  # Nav2: routes around obstacles
     python3 ~/robot/bin/tour.py --interactive            # type steps one at a time
     python3 ~/robot/bin/tour.py --speed 0.2 "walk 3"
-    python3 ~/robot/bin/tour.py --dry-run                # comments only, no movement
-    python3 ~/robot/bin/tour.py --finale "roast the person in front of you" "goto 2.8"
+    python3 ~/robot/bin/tour.py --finale "Hello, welcome to the lab." "person"
 
 Steps (comma separated, or one per line with --interactive):
     walk <m>            straight line, stops for obstacles within --stop
@@ -18,13 +17,13 @@ Steps (comma separated, or one per line with --interactive):
     approach <m>        Nav2 toward <m> ahead, stopping short of the FIRST
                         obstacle on that line
     person              walk up to the nearest person, stopping at --stop
-    follow <s>          follow that person for <s> seconds, stopping every
-                        --talk-every seconds to talk
+    follow <s>          follow that person for <s> seconds
 
-He stands first and sits at the end, talks only while standing still, and
-skips a step that fails. Without --handheld it sends its own heartbeat, so
-Ctrl-C (an e-stop) and the power switch are the only stops. More in
-docs/tools.md.
+He stands first and sits at the end, and skips a step that fails. At the end
+he says --finale, tilted up at whoever is in front of him, or how far he
+walked. The speech is Piper, on this computer: nothing goes online.
+Without --handheld it sends its own heartbeat, so Ctrl-C (an e-stop) and the
+power switch are the only stops. More in docs/tools.md.
 """
 import argparse
 import contextlib
@@ -36,22 +35,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from robot.nav import LETHAL, dist, goal_ahead, status_text
 from robot.protocol import Lite3Error
-from robot.talk import PERSONA, Talker
+from robot.talk import Voice
 
-PAUSED = ('You just stopped for a moment during your walk. In one or two short '
-          'sentences, say what you see ahead of you and what you think of it. Do '
-          'not repeat what you already said unless something changed. Only '
-          'describe what you see; do not announce moves, the walking is not yours '
-          'to choose.')
-FOLLOWING = ('You are following your human friend around. You just stopped '
-             'for a moment. In one or two short sentences, say what you see or '
-             'think right now. Do not repeat yourself.')
-PREP_LEAD = 5.0     # s before a talking stop to start writing the line
-PREP_CONTEXT = ('(You are still walking up to them and will say this the moment '
-                'you arrive, looking up at them. Say it as if you are already '
-                'there.) ')
-DONE = ('You just finished your walk; you covered %.1f metres in total. '
-        'Say one short sentence about it.')
+DONE = 'That was my walk: %.1f metres.'
 APPROACH_MARGIN = 0.2  # stop this far short of the last free cell
 MIN_GOAL = 0.5         # set when xy_goal_tolerance was 0.25 (0.15 now): a nearer goal "arrives" at once and he only turns
 STEPS = 'walk <m> | turn <deg> | goto <m> [<deg>] | approach <m> | person | follow <s>'
@@ -113,59 +99,13 @@ class Odometer(threading.Thread):
             self.last = p[:2]
 
 
-def aloud(talker, fn, text):
-    """fn(text) - the talker's look, say or ask - printed as he speaks it."""
-    print('\n%s:' % talker.name, end=' ', flush=True)
-    fn(text, on_sentence=lambda s: print(s, end=' ', flush=True))
-    print(flush=True)
-
-
-def comment(talker, prompt):
-    """Look and speak, blocking - call it only while the robot stands still."""
-    try:
-        aloud(talker, talker.look, prompt)
-    except Exception as e:          # never let a look take down the walk
-        print('\n[look failed: %s]' % e, flush=True)
-
-
-class Prepared(threading.Thread):
-    """A line written in the background while he is still walking (frame grab
-    + Gemini take ~3-4 s). result is the text, or None if it failed.
-    """
-
-    def __init__(self, talker, prompt):
-        super().__init__(daemon=True)
-        self.talker, self.prompt, self.result = talker, prompt, None
-
-    def run(self):
-        try:
-            self.result = self.talker.look(self.prompt, speak=False)
-        except Exception as e:
-            print('\n[preparing the finale failed: %s]' % e, flush=True)
-
-
-def follow_and_talk(bot, a, det, talker, seconds):
-    """Follow the person in segments of --talk-every seconds, stopping after
-    each to say what he sees. The line is written during the last PREP_LEAD
-    seconds of the segment so he can speak as soon as he halts."""
+def follow(bot, a, det, seconds):
+    """Follow the person for `seconds`, in pieces under steer()'s 30 s ceiling."""
     from robot import person
     end = time.time() + seconds
     while time.time() < end - 1.0:
-        seg = min(a.talk_every, end - time.time(), 29.0)   # steer() caps at 30 s
-        prep = Prepared(talker, FOLLOWING)
-        timer = threading.Timer(max(0.0, seg - PREP_LEAD), prep.start)
-        timer.start()
-        try:
-            r = person.follow(bot, det, seg, stop_distance=a.stop, speed=a.speed)
-        finally:
-            timer.cancel()
+        r = person.follow(bot, det, min(end - time.time(), 29.0), stop_distance=a.stop, speed=a.speed)
         print('\n[followed: moved %.2f m, %s]' % (r['moved'], r['reason']), flush=True)
-        if prep.ident is not None:            # the timer did start it
-            prep.join(timeout=15)
-        if prep.result:
-            aloud(talker, talker.say, prep.result)
-        else:
-            comment(talker, FOLLOWING)
         if r['reason'] != 'time limit':       # lost them, or no depth: stop
             break
 
@@ -195,16 +135,15 @@ def goto_step(bot, want, *heading):
         want, status_text(status), dist(start, there), dist(there, bot.wait_pose())))
 
 
-def run_step(bot, a, verb, args, det=None, near=None, talker=None):
+def run_step(bot, a, verb, args, det=None):
     try:
         if verb == 'person':
             from robot import person
             det.ready.wait(6)
-            r = person.approach(bot, det, stop_distance=a.stop, speed=a.speed,
-                                near=near)
+            r = person.approach(bot, det, stop_distance=a.stop, speed=a.speed)
             print('\n[person: moved %.2f m, %s]' % (r['moved'], r['reason']))
         elif verb == 'follow':
-            follow_and_talk(bot, a, det, talker, args[0])
+            follow(bot, a, det, args[0])
         elif verb == 'walk':
             # walk() samples the depth camera at 4 Hz and has no slow-down
             # ramp, so give it half a second of travel as extra margin.
@@ -253,41 +192,19 @@ def start_nav(bot):
     print('[Nav2 up]', flush=True)
 
 
-def run_route(bot, a, route, det, talker, track):
-    """Every step of the route (typed ones if it is None), with a comment after
-    each: a step ends halted, so after it is a quiet moment to talk. On a
-    fixed route the last pause is left for the finale; returns its line being
-    Prepared, if that was started."""
-    prep = None
-    for i, (verb, args) in enumerate(steps_from_stdin() if route is None else route):
-        last = route is not None and i == len(route) - 1
-        near = None
-        if a.finale and last and verb == 'person' and not a.look_up:
-            # Write the finale during the last metre so it is ready on arrival. Not
-            # with --look-up: that frame is grabbed before the tilt and shows knees.
-            prep = Prepared(talker, PREP_CONTEXT + a.finale)
-            near = prep.start
-        run_step(bot, a, verb, args, det, near, talker)
+def run_route(bot, a, route, det, track):
+    """Every step of the route (typed ones if it is None)."""
+    for verb, args in steps_from_stdin() if route is None else route:
+        run_step(bot, a, verb, args, det)
         track.sample()
-        if verb != 'follow' and not (last and a.finale):    # follow talks as it goes
-            comment(talker, PAUSED)
-    return prep
 
 
-def finale(bot, a, talker, prep):
-    """Answer --finale, tilted up at the person: the Prepared line if there is
-    one, otherwise looking now."""
-    if prep and prep.is_alive():
-        prep.join(timeout=15)
-    ready = prep.result if prep else None
+def finale(bot, a, voice):
+    """Say --finale, tilted up at the person in front of him."""
     with (bot.tilt(a.look_up, settle=0.3) if a.look_up
           else contextlib.nullcontext()):
-        if ready:
-            aloud(talker, talker.say, ready)
-        else:
-            # Short settle above: look() spends ~2 s grabbing a frame anyway,
-            # and by then he is tilted.
-            comment(talker, a.finale)
+        print('\n%s' % a.finale, flush=True)
+        voice.say(a.finale, voice=a.voice)
 
 
 def main():
@@ -295,8 +212,6 @@ def main():
     ap.add_argument('route', nargs='?', default='walk 2')
     ap.add_argument('--interactive', action='store_true',
                     help='read steps from the keyboard instead of the route')
-    ap.add_argument('--talk-every', type=float, default=20.0, metavar='S',
-                    help='follow: seconds of following between talking stops')
     ap.add_argument('--speed', type=float, default=0.3,
                     help='m/s, max 0.6. Below ~0.2 the gait shuffles and drifts '
                          'sideways. walk steps add speed * 0.5 s to --stop as '
@@ -309,15 +224,12 @@ def main():
                     help='walk without the depth-camera obstacle stop')
     ap.add_argument('--handheld', dest='heartbeat', action='store_false',
                     help='use the powered-on handheld instead of our own heartbeat')
-    ap.add_argument('--dry-run', action='store_true', help='one comment, no movement')
-    ap.add_argument('--voice', default=None)
-    ap.add_argument('--persona', default=None, help='deadpan (default), rocky or observer')
+    ap.add_argument('--voice', default=None, help='a Piper voice (python3 -m robot.talk voices)')
     ap.add_argument('--finale', default=None,
-                    help='at the end, still standing, look and answer this '
-                         'instead of the usual closing line')
+                    help='at the end, still standing, say this instead of how far he walked')
     ap.add_argument('--look-up', type=float, default=12.0, metavar='DEG',
-                    help='tilt the body nose-up this much for the finale, so '
-                         'the camera sees a face, not knees (max ~14, 0 = off)')
+                    help='tilt the body nose-up this much for the finale, so he '
+                         'faces the person, not their knees (max ~14, 0 = off)')
     a = ap.parse_args()
     route = None if a.interactive else parse_route(a.route)
     use_nav = a.interactive or any(v in ('goto', 'approach') for v, _ in route)
@@ -332,15 +244,8 @@ def main():
         det = person.PersonDetector()
         det.start()
 
-    talker = Talker(voice=a.voice, persona=a.persona or PERSONA)
-    if talker.live:
-        # Connect to Gemini while he stands up and walks, not when he has
-        # to speak.
-        threading.Thread(target=talker.live.warm, daemon=True).start()
+    voice = Voice()
     try:
-        if a.dry_run:
-            comment(talker, PAUSED)
-            return 0
         from robot.lite3 import Lite3
         # upright(): arm, stand, and on the way out sit FIRST; close() then
         # disarms SECOND.
@@ -350,22 +255,20 @@ def main():
                 if use_nav:
                     start_nav(bot)
                 track.reset()
-                prep = run_route(bot, a, route, det, talker, track)
+                run_route(bot, a, route, det, track)
                 if a.finale:
-                    finale(bot, a, talker, prep)
+                    finale(bot, a, voice)
             finally:
                 bot.halt()
                 if use_nav:
                     bot.nav_stop()
-        if a.finale:
-            return 0
-        aloud(talker, talker.ask, DONE % track.total)
+        if not a.finale:
+            print('\n' + DONE % track.total, flush=True)
+            voice.say(DONE % track.total, voice=a.voice)
         return 0
     finally:
         if det:
             det.stop()
-        talker.close()
-
 
 if __name__ == '__main__':
     sys.exit(main())

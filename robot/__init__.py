@@ -5,5 +5,5 @@ only what that submodule needs - `talk` and `protocol` have no use for rclpy, an
 a re-export here would drag it into every import.
 
     from robot.lite3 import Lite3
-    from robot.talk import Voice, Talker
+    from robot.talk import Voice
 """
