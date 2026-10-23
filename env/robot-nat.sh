@@ -19,15 +19,17 @@ iptables -t nat -C PREROUTING -i p2p0 -d 192.168.2.1 -p udp --dport 8190 -j DNAT
 # 8000-8001 and SRT 8890 over UDP) answer anyone, with no password, so they would
 # skip the panel's login (PRIVACY.md). Only the perception computer (the panel,
 # rs_stream.py) and the Orin (bin/run.py --frames) may reach them; this computer's
-# own pushes go over loopback, which never passes PREROUTING. In the raw table:
-# Tailscale's ts-input chain accepts all tailnet traffic before any filter rule.
+# own pushes go over loopback, which never passes PREROUTING. In the mangle table,
+# at the top: Tailscale's ts-input chain (filter) accepts all tailnet traffic
+# before any filter rule, and this kernel has no raw table (CONFIG_IP_NF_RAW).
+# DROP goes in first, then the two ACCEPTs above it.
 # The vendor phone app's camera view, if it reads these, stops working too.
 for rule in "tcp 1935" "tcp 8554" "tcp 8888" "tcp 8889" "udp 8000" "udp 8001" "udp 8890"; do
   set -- $rule
+  iptables -t mangle -C PREROUTING -p $1 --dport $2 -j DROP 2>/dev/null || \
+    iptables -t mangle -I PREROUTING 1 -p $1 --dport $2 -j DROP
   for from in 192.168.1.103 192.168.1.5; do
-    iptables -t raw -C PREROUTING -p $1 --dport $2 -s $from -j ACCEPT 2>/dev/null || \
-      iptables -t raw -I PREROUTING 1 -p $1 --dport $2 -s $from -j ACCEPT
+    iptables -t mangle -C PREROUTING -p $1 --dport $2 -s $from -j ACCEPT 2>/dev/null || \
+      iptables -t mangle -I PREROUTING 1 -p $1 --dport $2 -s $from -j ACCEPT
   done
-  iptables -t raw -C PREROUTING -p $1 --dport $2 -j DROP 2>/dev/null || \
-    iptables -t raw -A PREROUTING -p $1 --dport $2 -j DROP
 done
