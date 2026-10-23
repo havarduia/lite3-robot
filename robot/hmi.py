@@ -9,6 +9,7 @@ sonar stops, E-STOP, what happens when the page goes away) and the camera
 plumbing are in docs/panel.md.
 """
 import asyncio
+import hmac
 import json
 import math
 import os
@@ -53,6 +54,8 @@ PING_S = 5.0           # a page that has gone silent is noticed within about 1.5
 MODEL_HZ = 10.0        # joint angles to pages showing the 3D model; /joint_states comes at 10
 LEGS = ('LF', 'RF', 'LB', 'RB')    # the order the page gets the joints in, three per leg
 PLAN_POINTS = 40       # Nav2's path goes to the page thinned to about this many points
+COOKIE = 'lite3'       # a logged-in page's cookie: P.panel_key()
+LOGIN_DAYS = 30        # a login lasts this long on one browser
 
 # What the page needs to know to draw and warn with the same numbers as here.
 LIMITS = {'vx': DRIVE_MAX_VX, 'wz': DRIVE_MAX_WZ, 'stop': FORWARD_STOP_M,
@@ -134,6 +137,34 @@ class FrontCamera(threading.Thread):
                 # Forget the last frame: the next viewer would get it first, however old.
                 self.frames.put(None)
             time.sleep(1.0)
+
+
+LOGIN_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lite3 login</title>
+<style>
+:root { color-scheme: light dark; --bg: #eef1f5; --card: #fff; --ink: #0f172a; --ink-2: #475569; --line: #94a3b8; --accent: #0369a1; --on: #fff; --bad: #c81e1e; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --card: #172033; --ink: #f1f5f9; --ink-2: #a3b1c6; --line: #475569; --accent: #38bdf8; --on: #0b1220; --bad: #fca5a5; } }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+form { width: min(340px, calc(100vw - 32px)); padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 12px; }
+h1 { margin: 0; font-size: 22px; }
+p { margin: 0; color: var(--ink-2); font-size: 14px; }
+label { font-weight: 700; }
+input, button { font: inherit; min-height: 44px; border-radius: 8px; }
+input { padding: 0 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+button { border: 0; background: var(--accent); color: var(--on); font-weight: 700; cursor: pointer; }
+.bad { color: var(--bad); font-weight: 700; }
+</style></head>
+<body><form method="post" action="/login">
+<h1>Lite3</h1>
+<p>This panel shows live camera video and drives the robot. Authorised operators only.</p>
+%s
+<label for="pw">Password</label>
+<input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+<button>Log in</button>
+</form></body></html>
+"""
 
 
 class Robot:
@@ -431,6 +462,7 @@ class Robot:
             # for the 3D view, in odom: Nav2's goal and path, and where the person is
             'goal': goal, 'plan': plan, 'them': them,
             'floors': self.floors, 'map': self.on_map(), 'mapping': self.mapping,
+            'public': P.public_mode(),
             'limits': LIMITS,
         }
 
@@ -555,6 +587,31 @@ class Server:
             except Exception:
                 self.pages.discard(ws)
 
+    # --- login (PRIVACY.md): one password, in P.PANEL_PASSWORD_FILE ----------
+    @web.middleware
+    async def auth(self, request, handler):
+        if request.path == '/login':
+            return await handler(request)
+        given = request.cookies.get(COOKIE) or request.headers.get('X-Panel-Key') or ''
+        if hmac.compare_digest(given, self.key):
+            return await handler(request)
+        if request.path == '/':
+            raise web.HTTPFound('/login')
+        return web.Response(status=401, text='log in first')
+
+    async def login_page(self, request, wrong=False):
+        return web.Response(text=LOGIN_PAGE % ('<p class="bad">Wrong password.</p>' if wrong else ''),
+                            content_type='text/html', headers={'Cache-Control': 'no-store'})
+
+    async def login(self, request):
+        form = await request.post()
+        if not P.panel_password_ok(str(form.get('password', ''))):
+            await asyncio.sleep(1.0)            # slows guessing to one try a second a page
+            return await self.login_page(request, wrong=True)
+        r = web.HTTPFound('/')
+        r.set_cookie(COOKIE, self.key, max_age=LOGIN_DAYS * 86400, httponly=True, samesite='Strict')
+        raise r
+
     async def index(self, request):
         # no-cache = ask before reusing a kept copy. Without it a browser may show
         # yesterday's page for hours after a pull (a phone did, 2026-10-07).
@@ -653,6 +710,10 @@ class Server:
             talk.VOLUME = min(1.0, max(0.0, float(c['v'])))
         elif k == 'voice':
             r.voice(c.get('v'))
+        elif k == 'public':
+            P.set_public_mode(bool(c.get('on')))
+            r.log('public mode ' + ('on: looking is off' if c.get('on') else 'OFF: camera frames may go to Gemini'),
+                  None if c.get('on') else 'warn')
         elif k in ('say', 'ask', 'look'):
             r.talk(k, (c.get('text') or '').strip(), c.get('persona'))
 
@@ -785,7 +846,10 @@ class Server:
         self.loop = asyncio.get_event_loop()
         self.robot = Robot(self.emit)
         FrontCamera(self.front).start()
-        app = web.Application()
+        self.key = P.panel_key()               # makes the password file on the first start
+        app = web.Application(middlewares=[self.auth])
+        app.router.add_get('/login', self.login_page)
+        app.router.add_post('/login', self.login)
         app.router.add_get('/', self.index)
         app.router.add_get('/ws', self.ws)
         app.router.add_get('/stream/front', self.stream_front)

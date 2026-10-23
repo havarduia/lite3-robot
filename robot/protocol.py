@@ -21,7 +21,11 @@ Codes marked OFFICIAL are in DeepRoboticsLab source; COMMUNITY ones come from
 infodriver/lite3-sdk and have not been run on this robot. The rest were
 captured from the handheld or phone app here.
 """
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import socket
 import struct
 import subprocess
@@ -42,6 +46,43 @@ RS_RTSP = 'rtsp://%s:8554/realsense' % MOTION_IP
 RS_WHEP = 'http://%s:8889/realsense/whep' % MOTION_IP
 CAMERA_RTC_PORT = 8189
 AP_RTC_PORT = 8190                   # the motion computer forwards it to udp_relay's 8189 (env/robot-nat.sh)
+
+# The panel's password (robot/hmi.py), on the perception computer only. Made at the
+# panel's first start if missing; delete it to get a new one, which logs every page out.
+PANEL_PASSWORD_FILE = os.path.expanduser('~/.lite3_panel_password')
+
+
+def panel_key():
+    """What a logged-in page's cookie holds, and what robot/rviz.py sends instead:
+    derived from the password, so changing the password logs everyone out."""
+    if not os.path.exists(PANEL_PASSWORD_FILE):
+        fd = os.open(PANEL_PASSWORD_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(secrets.token_urlsafe(9) + '\n')
+    password = open(PANEL_PASSWORD_FILE).read().strip()
+    return hmac.new(password.encode(), b'lite3 panel', hashlib.sha256).hexdigest()
+
+
+def panel_password_ok(given):
+    password = open(PANEL_PASSWORD_FILE).read().strip()
+    return hmac.compare_digest(given.encode(), password.encode())
+
+
+# Public mode (PRIVACY.md): no camera frame goes to Gemini. It is the default, and
+# the flag that lifts it is in /tmp, so every boot starts in public mode again.
+PRIVATE_AREA_FLAG = '/tmp/lite3_private_area'
+
+
+def public_mode():
+    return not os.path.exists(PRIVATE_AREA_FLAG)
+
+
+def set_public_mode(on):
+    if on:
+        if os.path.exists(PRIVATE_AREA_FLAG):
+            os.remove(PRIVATE_AREA_FLAG)
+    else:
+        open(PRIVATE_AREA_FLAG, 'w').close()
 
 
 class Lite3Error(RuntimeError):

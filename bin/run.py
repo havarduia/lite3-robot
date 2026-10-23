@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Record a run on all three robot computers. Run on the laptop.
 
-    bin/run.py start <name> [--minutes 40]    load on all three, a bag on the perception computer,
-                                              the front camera (2 frames a second) on the Orin
+    bin/run.py start <name> [--minutes 40]    load on all three, a bag on the perception computer
+    bin/run.py start <name> --frames          also the front camera, 2 frames a second, on the Orin
     bin/run.py note "arrived 0.07 m"          a remark, stamped with the laptop's clock
     bin/run.py stop                           stop, fetch into logs/<date>_<name>/, clean up
+    bin/run.py purge                          delete camera frames over an hour old (cron, every 5 min)
     bin/run.py ... --local                    the same with the laptop as all three (a dry run)
 
 Everything on the robot runs detached and under `timeout`, so a dropped
@@ -13,12 +14,20 @@ running past --minutes. Stopped by pid, never by name. The topic list is
 env/runlog_topics.txt, sent along: no Nav2 word on any command line.
 Reached through the robot's hotspot when the laptop is on it, else over
 Tailscale. bin/report.py reads the folder. docs/tools.md, "Measuring a run".
+
+Camera frames show people, so they are personal data (PRIVACY.md): only with
+--frames, only where everyone in view knows, and deleted FRAMES_KEEP_S after
+the run stops, by `purge` (which every other command also does first). Read
+the tags out of them (bin/tags.py) within that hour. Install the purge once:
+    (crontab -l; echo '*/5 * * * * cd <repo> && bin/run.py purge') | crontab -
 """
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -34,6 +43,7 @@ LOCAL_ENV = 'source /opt/ros/jazzy/setup.bash; export ROS_DOMAIN_ID=77 ROS_LOCAL
 STOP_WAIT_S = 15        # a bag closes its file on SIGINT; give it this long
 CLOCK_SAMPLES = 20
 FRONT_PER_S = 2         # front camera frames kept a second: enough for tags, ~70 kB each
+FRAMES_KEEP_S = 3600    # PRIVACY.md: front camera frames are deleted this long after their run stops
 
 
 def routes(via):
@@ -102,7 +112,22 @@ def clock_offset(route, samples=CLOCK_SAMPLES):
     return round(best[1], 4), round(best[0] / 2, 4)
 
 
-def start(name, minutes, via):
+def purge_frames(now=None):
+    """Delete the front camera frames of every run that stopped more than
+    FRAMES_KEEP_S ago (started, if it never stopped); the rest of the run
+    (bag, load, report) stays. Times are the laptop's: the Orin's clock can be off."""
+    now = now or time.time()
+    for front in glob.glob(os.path.join(LOGS, '*', 'orin', 'front')):
+        meta = os.path.join(os.path.dirname(os.path.dirname(front)), 'meta.json')
+        m = json.load(open(meta)) if os.path.exists(meta) else {}
+        ended = m.get('stop') or m.get('start') or os.path.getmtime(front)
+        if now - ended > FRAMES_KEEP_S:
+            shutil.rmtree(front)
+            print('deleted the camera frames of %s (over %d min since the run)'
+                  % (os.path.relpath(os.path.dirname(os.path.dirname(front)), REPO), FRAMES_KEEP_S // 60))
+
+
+def start(name, minutes, via, frames=False):
     if os.path.exists(CURRENT):
         raise SystemExit('a run is going: %s (bin/run.py stop first)' % open(CURRENT).read().strip())
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name):
@@ -122,7 +147,7 @@ def start(name, minutes, via):
         meta['clock_offset_s'][host], meta['clock_error_s'][host] = clock_offset(route)
         sh(route, detached(d, 'loadwatch', 'timeout %d python3 %s/loadwatch.py %s/load.jsonl %d 2'
                            % (cap, d, d, cap)))
-        if host == 'orin' and route is not None:    # the front camera, decoded where there is room
+        if frames and host == 'orin' and route is not None:    # the front camera, decoded where there is room
             sh(route, 'cat > %s/frontcam.py' % d, stdin=frontcam)
             sh(route, detached(d, 'frontcam', 'timeout %d python3 %s/frontcam.py %s/front %d %s'
                                % (cap, d, d, cap, FRONT_PER_S)))
@@ -187,20 +212,22 @@ def stop():
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    p.add_argument('what', choices=['start', 'note', 'stop'])
+    p.add_argument('what', choices=['start', 'note', 'stop', 'purge'])
     p.add_argument('arg', nargs='?')
     p.add_argument('--minutes', type=float, default=40)
     p.add_argument('--local', action='store_true')
+    p.add_argument('--frames', action='store_true', help='record front camera frames (personal data: PRIVACY.md)')
     a = p.parse_args()
+    purge_frames()
     if a.what == 'start':
         if not a.arg:
             p.error('start needs a name')
-        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale')
+        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale', a.frames)
     elif a.what == 'note':
         if not a.arg:
             p.error('note needs the text')
         note(a.arg)
-    else:
+    elif a.what == 'stop':
         stop()
 
 

@@ -185,6 +185,7 @@ run on the laptop. Plan: `.planning/plans/compute-distribution.md`.
 
 ```
 bin/run.py start door-test          # start recording on all three computers
+bin/run.py start door-test --frames # also front camera frames (people: PRIVACY.md; deleted an hour after stop)
 bin/run.py note "arrived 0.07 m"    # remarks, stamped with the laptop's clock
 bin/run.py stop                     # stop, fetch into logs/<date>_door-test/, clean up
 bin/report.py logs/2026-10-14_door-test

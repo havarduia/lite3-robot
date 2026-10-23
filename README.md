@@ -65,10 +65,11 @@ stopped, even after a crash or Ctrl-C.
    python3 -m robot.lite3 sit
    ```
 
-5. Open the web panel: `python3 -m robot.hmi`, then
-   `http://lite3-perception:8080` (Tailscale) or `http://192.168.2.1:8080`
-   (the robot's wifi). Only one program may hold the robot: stop the panel
-   before you run other scripts.
+5. Open the web panel at `http://lite3-perception:8080` (Tailscale) or
+   `http://192.168.2.1:8080` (the robot's wifi), and log in with the password
+   in `~/.lite3_panel_password` on the perception computer. The panel runs as
+   `hmi.service`. Only one program may hold the robot: stop the panel
+   (`sudo systemctl stop hmi`) before you run other scripts.
 
 Your first program:
 
@@ -106,7 +107,8 @@ It tests the motion loop against a fake robot, so it runs anywhere.
 | know why it is built this way, FAQ, glossary | [docs/background.md](docs/background.md) |
 
 Taking over the robot? Start with [HANDOVER.md](HANDOVER.md): the computers,
-logins, and what is tied to a person's accounts.
+logins, and what is tied to a person's accounts. The robot films people:
+[PRIVACY.md](PRIVACY.md) says what it collects and how to run it in public.
 
 Lab notes and old plans are in [docs/history/](docs/history/README.md).
 

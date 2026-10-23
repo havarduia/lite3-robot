@@ -174,6 +174,7 @@ h2 { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: u
 .key.go { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .key[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
 .key.wide { flex: 1; }
+.key:disabled { opacity: .45; cursor: not-allowed; }
 .cancel { background: #f5b014; color: #111827; border-color: #f5b014; }
 
 /* a two-position selector: the side that is down is where he is now */
@@ -344,6 +345,7 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
       <span class="chip" id="s-post" aria-label="posture">–</span>
       <span class="chip lamp off" id="busy">Idle</span>
       <span class="chip lamp off" id="t-nav">Nav2 –</span>
+      <span class="chip lamp busy" id="t-pub" title="Camera frames may go to Gemini: only where everyone in view has agreed" hidden>Public mode off</span>
       <span class="chip lamp off" id="s-hb" title="While the heartbeat is on he obeys this panel with no handheld switched on">Heartbeat –</span>
     </div>
     <div class="act">
@@ -490,6 +492,8 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
     <section class="pane" id="sys" data-tab="sys">
       <div class="head"><h2>Systems</h2></div>
       <div class="rows">
+        <div><span class="what">Public mode<small>Look is off: no camera frame goes to Gemini. Back on at every boot</small></span>
+          <button class="switch" role="switch" aria-checked="true" aria-label="Public mode" data-cmd="public" data-toggle id="k-public"></button></div>
         <div><span class="what">Nav2<small>path planning</small></span>
           <button class="switch" role="switch" aria-checked="false" aria-label="Nav2" data-cmd="nav" data-toggle id="k-nav"></button></div>
         <div><span class="what">Depth camera<small>RealSense, obstacle stops</small></span>
@@ -520,7 +524,7 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
       <div class="line">
         <button class="key go" data-talk="ask">Ask</button>
         <button class="key" data-talk="say">Say it</button>
-        <button class="key" data-talk="look">Look and comment</button>
+        <button class="key" data-talk="look" id="k-look" title="Off in public mode (System)">Look and comment</button>
       </div>
       <div id="chat"></div>
     </section>
@@ -646,6 +650,7 @@ function renderStatus(s) {
   // The detector looks through the front camera, so its box sits on that picture.
   const p = s.person, who = $('who');
   sw('k-person', s.detect);
+  sw('k-public', s.public); $('t-pub').hidden = s.public !== false; $('k-look').disabled = s.public !== false;
   $('s-who').textContent = !s.detect ? 'Off' : !p ? 'Nobody'
     : (p[0] + p[2]) / 2 < 0.4 ? 'Left' : (p[0] + p[2]) / 2 > 0.6 ? 'Right' : 'Ahead';
   $('s-who').className = 'lamp' + (p ? '' : ' off');

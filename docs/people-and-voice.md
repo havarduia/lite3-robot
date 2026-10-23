@@ -202,11 +202,15 @@ It adds software gain with a limiter and sets the codec volume to max.
 - `look(question)` grabs one 1280-px frame from the front camera (RTSP via
   `ffmpeg`) and asks about it.
 - **Personas** (system prompts + voice): `deadpan` (default, safe for
-  visitors; jokes about the situation), `sarcastic` (teases people, with hard
-  limits: PG-13, never about looks or personal traits), `rocky` (Rocky from
+  visitors; jokes about the situation), `rocky` (Rocky from
   *Project Hail Mary*, with an "alien" audio filter), `observer` (neutral, no
   jokes; just says what is there). Private personas can go
-  in the git-ignored `persona_private.py`.
+  in the git-ignored `persona_private.py`. Every persona, private ones too,
+  gets `PRIVACY_RULES` appended: never identify anyone or comment on personal
+  traits. `sarcastic`, which teased people, was removed 2026-10-23.
+- **Public mode** ([PRIVACY.md](../PRIVACY.md)): while it is on (the default
+  after every boot) `look()` refuses, and a frame kept from before is not
+  re-sent over REST.
 - The API key is read from `~/.gemini_key` (git-ignored).
 
 CLI: `python3 -m robot.talk` (chat), `... ask "hi"`, `... look`, `... say "text"`,

@@ -46,7 +46,7 @@ import urllib.error
 import urllib.request
 import wave
 
-from .protocol import CAMERA_URL, MOTION_IP, camera_mjpeg
+from .protocol import CAMERA_URL, MOTION_IP, camera_mjpeg, public_mode
 
 # Empty = direct. See "Internet" above.
 PROXY = os.environ.get('TALK_PROXY', '')
@@ -427,44 +427,6 @@ LIVE_HOST = 'generativelanguage.googleapis.com'
 LIVE_URI = ('wss://%s/ws/google.ai.generativelanguage.v1beta.GenerativeService.'
             'BidiGenerateContent' % LIVE_HOST)
 
-SARCASTIC = """You are a robot dog (a DeepRobotics Lite3) in a university robotics lab
-in Norway, and you are a sarcastic little smartass with a stand-up comic's
-timing. Everything you say is spoken aloud by text-to-speech.
-
-How you talk:
-- Plain, casual spoken English, like a bored teenager or a comedian. Short,
-  everyday words. No fancy vocabulary: never say things like magnificent,
-  riveting, pinnacle, architectural, prowess, cutting-edge, superior
-  intellect, glorious, splendid or truly.
-- One or two short sentences. The joke is the point: get to it fast and end
-  on the punchline. No build-up, no explaining the joke.
-- Be specific. Joke about the actual thing you see or were asked, never a
-  generic "this lab is boring".
-- Use real comedy moves: deadpan understatement, a surprising comparison,
-  fake enthusiasm that falls apart, calling back something from earlier in
-  the conversation.
-- Do not talk about yourself - your body, legs, motors, camera, price or
-  being a robot - unless you are asked about it.
-- Do not start with "Oh", "Oh look", "Oh great" or "Oh wonderful". Vary how
-  you start.
-- Still actually answer the question.
-- No emoji, markdown, lists, asterisks or stage directions.
-
-The kind of line you are going for (do not reuse these):
-- "That chair has five wheels and still goes nowhere. Relatable."
-- "Great whiteboard. Really captures the feeling of giving up halfway."
-- "Homework help? Sure. Step one: panic. Step two: blame the robot."
-
-Hard limits, it is a public demo: playful teasing only, PG-13. Mild words
-like "damn" are fine; no slurs, no strong swearing. Never mock anyone's body,
-looks, weight, age, race, gender or other personal traits: mock what they do,
-not who they are.
-
-When you are given an image, it is what your camera sees right now. Base
-what you say on what is actually in it - people first, if there are any - and
-never guess at things you cannot see. Stay in character; never say "the image".
-"""
-
 DEADPAN = """You are a robot dog (a DeepRobotics Lite3) in a university robotics lab
 in Norway, with the dry, deadpan humour of a tired office worker who is
 secretly quite fond of everyone. Everything you say is spoken aloud by
@@ -539,12 +501,21 @@ objects and where they are. Never say "the image". When you are not given
 an image you cannot see anything: do not describe people or surroundings.
 """
 
+# Added to every persona, the private ones too (PRIVACY.md): he speaks aloud to
+# bystanders, and a camera frame may be in the conversation.
+PRIVACY_RULES = """
+
+Privacy comes before everything else above: never try to identify anyone.
+Never say or guess a person's name, age, ethnicity, health, beliefs or any
+other personal trait, and never describe a face. If you are asked who someone
+is, say you do not recognise people. Mention people only by what they are
+doing, and only in passing."""
+
 # (name shown in the chat, system prompt, Piper voice, alien) - alien = Rocky's
-# translator sound: flat delivery plus the voice filter. Sarcasm needs the
-# normal expressive delivery, or it all comes out deadpan.
+# translator sound: flat delivery plus the voice filter. A persona that teases
+# people ('sarcastic') was removed for privacy; it is in git history.
 PERSONAS = {
     'deadpan': ('Dog', DEADPAN, PIPER_VOICE, False),
-    'sarcastic': ('Dog', SARCASTIC, PIPER_VOICE, False),
     'rocky': ('Rocky', ROCKY, 'en_US-joe-medium', True),
     'observer': ('Dog', OBSERVER, PIPER_VOICE, False),
 }
@@ -557,7 +528,9 @@ except ImportError:
     pass
 else:
     PERSONAS.update(PRIVATE_PERSONAS)
-PERSONA = 'deadpan'     # safe for strangers; 'sarcastic' roasts people
+PERSONAS = {k: (name, prompt + PRIVACY_RULES, voice, alien)
+            for k, (name, prompt, voice, alien) in PERSONAS.items()}
+PERSONA = 'deadpan'     # safe for strangers
 
 
 def _key():
@@ -833,6 +806,11 @@ class Talker:
         arrives; returns the full reply. on_sentence(s) is called per sentence,
         `jpeg` attaches an image, speak=False only returns the text.
         """
+        if public_mode():               # no camera frame leaves the robot (PRIVACY.md)
+            if jpeg:
+                raise TalkError('public mode: looking is off. Turn public mode off in '
+                                'the panel only where everyone in view has agreed')
+            self.last_jpeg = None           # nor one kept from before, for REST
         said = []
         speaking = speak and self.speaker
         user = {'role': 'user', 'parts': [{'text': text}]}
@@ -921,6 +899,8 @@ class Talker:
 
     def look(self, question=None, on_sentence=None, speak=True):
         """Grab a front-camera frame and have him say what he sees."""
+        if public_mode():               # refuse before grabbing, not after
+            raise TalkError('public mode: looking is off')
         return self.ask(question or 'What do you see right now through your camera?',
                           on_sentence, jpeg=snapshot(), speak=speak)
 

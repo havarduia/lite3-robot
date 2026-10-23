@@ -4,6 +4,18 @@
 python3 -m robot.hmi     # then open http://lite3-perception:8080
 ```
 
+**Login and public mode** (2026-10-23, [PRIVACY.md](../PRIVACY.md)). Every
+page and request needs a login first: one password, in
+`~/.lite3_panel_password` on the perception computer, made at the panel's
+first start. A login lasts 30 days on that browser, in an HttpOnly,
+SameSite=Strict cookie derived from the password, so changing the password
+(delete the file, restart the panel) logs everyone out. A wrong password
+costs a second. `robot/rviz.py` sends the same key in an `X-Panel-Key`
+header. **Public mode** (System, on at every boot: its off switch is a file
+in `/tmp`) keeps camera frames away from Gemini: Look and comment is greyed
+out, `talk.py` refuses to look, and an amber chip in the top bar shows while
+it is off.
+
 An `aiohttp` server on the **Tailscale VPN address**, so nothing on the
 public Wi-Fi can reach it, and on the robot's own network (`eth0`,
 192.168.1.103) for a phone on **his own wifi** (`YSC-JYML-...-5G`): open

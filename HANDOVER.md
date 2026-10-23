@@ -31,7 +31,8 @@ new laptop connects.
 
 The panel is `http://lite3-perception:8080` (Tailscale) or
 `http://192.168.2.1:8080` (the robot's wifi). It runs as `hmi.service`, so it
-is up after every boot. Its log is `/tmp/hmi.log`. Stop it
+is up after every boot. Its password is in `~/.lite3_panel_password` there
+(PRIVACY.md). Its log is `/tmp/hmi.log`. Stop it
 (`sudo systemctl stop hmi`) before you run another program that holds the
 robot.
 
