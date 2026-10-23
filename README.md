@@ -105,6 +105,9 @@ It tests the motion loop against a fake robot, so it runs anywhere.
 | set up the environment, see our vendor patches and measured numbers | [docs/environment.md](docs/environment.md) |
 | know why it is built this way, FAQ, glossary | [docs/background.md](docs/background.md) |
 
+Taking over the robot? Start with [HANDOVER.md](HANDOVER.md): the computers,
+logins, and what is tied to a person's accounts.
+
 Lab notes and old plans are in [docs/history/](docs/history/README.md).
 
 ## Repository layout
