@@ -360,8 +360,11 @@ def api_nav_state():
 # lio_live.py runs FAST-LIO2 on the live topic and rewrites ~/maps/live/
 # state.json + changed map tiles every 0.2 s; the Live tab polls those. It runs beside
 # any job (it only reads the topic), so it has its own state, not job's.
+# A run is a map ({"map": true}: the Live tab, mapmaker.py) or odometry only
+# (lio_live --nav: what lio_relay starts for navigation, with no map to build or
+# save). Asking for a map while an odometry run goes replaces that run.
 LIVE = os.path.join(MAPS, "live")
-live = {"proc": None, "log": []}
+live = {"proc": None, "log": [], "map": False}
 
 
 def live_read(p):
@@ -376,18 +379,28 @@ def live_running():
 
 @app.post("/api/live/start")
 def api_live_start():
+    want_map = bool((request.get_json(silent=True) or {}).get("map"))
     with start_lock:
+        if live_running() and want_map and not live["map"]:
+            p = live["proc"]
+            os.killpg(p.pid, signal.SIGINT)
+            try:
+                p.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
         if live_running():
             return jsonify(error="live SLAM is already running"), 409
         # A panel restart does not take its children down (own session).
         for leftover in (f"{BIN}/lio_live.py", "fast_lio/fastlio_mapping"):
             subprocess.run(["pkill", "-INT", "-f", leftover])
         live["log"] = []
+        live["map"] = want_map
         live["proc"] = subprocess.Popen(
             # System python: FAST-LIO's Odometry message breaks under
             # kiss_env's numpy 2 (as nav_link.py's do).
             ["bash", "-c", ROS + f"exec /usr/bin/python3 -u "
-                                 f"{BIN}/lio_live.py --out {LIVE}"],
+                                 f"{BIN}/lio_live.py --out {LIVE}"
+                                 + ("" if want_map else " --nav")],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             bufsize=1, start_new_session=True)
         spawn(live_read, live["proc"])
@@ -466,7 +479,7 @@ def api_live_stop():
         os.killpg(p.pid, signal.SIGINT)
         # Post-processing goes through the job pipeline (Progress card, opens
         # the viewer) unless a recording/scan owns it - then just save.
-        post = not busy()
+        post = live["map"] and not busy()
         if post:
             begin("processing", name, 0.0)
             job["step"] = "closing the map (last loop-closure check)"

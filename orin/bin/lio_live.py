@@ -26,6 +26,9 @@ look for a result (same layout kiss_live used, so the panel is unchanged):
 
     lio-live                    system python, ROS sourced
     lio-live --no-spawn         FAST-LIO already running (e.g. under gdb)
+    lio-live --nav              odometry only, for navigation on a saved map: no
+                                point clouds read, so no tiles, scans.bin, path or
+                                save; state.json keeps tilt, diverged and t
 
 FAST-LIO's world frame is the IMU frame at start-up, which on this mount is
 tilted 20 deg; everything here is levelled by the first second of gravity.
@@ -165,7 +168,7 @@ class Live:
         self.path_last = None
         self.pub_ms = collections.deque(maxlen=25)
         self.pose_now = None
-        self.scan_log = open(os.path.join(a.out, "scans.bin"), "wb")
+        self.scan_log = None if a.nav else open(os.path.join(a.out, "scans.bin"), "wb")
         self.R_fl = None                      # FAST-LIO's raw attitude (unlevelled)
         self.f_sum = np.zeros(3)              # sum of accel, in FAST-LIO's frame
         self.f_n = 0
@@ -238,12 +241,14 @@ class Live:
             print(f"FAST-LIO ran away (> {RUNAWAY_MS:g} m/s) at {self.frames / 10:.0f} s - "
                   f"diverged; the map from here on is not trustworthy", flush=True)
         with self.lock:
-            self.poses.append(T)
-            self.tilt_log.append((self.frames, err, 0.0))
+            if not self.a.nav:                    # the map's poses: they grow all run
+                self.poses.append(T)
+                self.tilt_log.append((self.frames, err, 0.0))
             self.pose_now = T
             self.frames += 1
         self.odo_t.append(time.monotonic())
-        self.status = ("DIVERGED - stop and restart" if self.diverged else "mapping")
+        self.status = ("DIVERGED - stop and restart" if self.diverged
+                       else "odometry" if self.a.nav else "mapping")
 
     def on_cloud(self, m):
         if self.A is None:
@@ -341,7 +346,7 @@ class Live:
             T = self.pose_now
             new = self.poses[self.path_n:] if full else []
         self.write_tiles(self.update_tiles(fresh))
-        if full and (new or not self.path_v):
+        if full and not self.a.nav and (new or not self.path_v):
             self.extend_path(new)
             self.path_v += 1
             atomic(os.path.join(self.a.out, "path.json"), json.dumps(self.path).encode())
@@ -381,7 +386,7 @@ class Live:
                     "bounds": self.bounds, "tiles": self.tile_v}
                    if self.tile_v else None,
             "imu": self.imu_t0 is not None, "jumps": self.jumps,
-            "diverged": self.diverged,
+            "diverged": self.diverged, "map": not self.a.nav,
             "updated": time.time(),
         }
         atomic(os.path.join(self.a.out, "state.json"), json.dumps(st).encode())
@@ -456,6 +461,8 @@ def main():
     ap.add_argument("--no-spawn", action="store_true",
                     help="FAST-LIO is already running; just read its topics")
     ap.add_argument("--no-save", action="store_true")
+    ap.add_argument("--nav", action="store_true",
+                    help="odometry only: no map is built or saved (navigation on a saved map)")
     ap.add_argument("--save-path", default=None,
                     help="save into exactly this slam_output/latest directory")
     a = ap.parse_args()
@@ -481,7 +488,8 @@ def main():
     deep = QoSProfile(depth=200, reliability=ReliabilityPolicy.BEST_EFFORT)
     node.create_subscription(Imu, "/livox/imu", live.on_imu, deep)
     node.create_subscription(Odometry, "/Odometry", live.on_odom, 100)
-    node.create_subscription(PointCloud2, "/cloud_registered", live.on_cloud, 20)
+    if not a.nav:                                 # the map's input, and most of the CPU
+        node.create_subscription(PointCloud2, "/cloud_registered", live.on_cloud, 20)
     node.create_subscription(Vector3Stamped, "/lio/gravity", live.on_grav, 20)
     ex = rclpy.executors.MultiThreadedExecutor(num_threads=2)
     ex.add_node(node)
@@ -508,7 +516,7 @@ def main():
         except subprocess.TimeoutExpired:
             os.killpg(lio.pid, signal.SIGKILL)
     time.sleep(0.3)                               # last messages in flight
-    if not a.no_save:
+    if not (a.no_save or a.nav):
         live.save()
     live.status = "stopped"
     live.write_state(None)

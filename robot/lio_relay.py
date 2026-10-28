@@ -196,7 +196,8 @@ def cloud(path):
 def live(what, **options):
     """The Orin's FAST-LIO2 run: live('start'), live('stop', name='hall'),
     live('state'). Returns the panel's answer; start it with the robot
-    standing still. A stop saves the run's map on the Orin."""
+    standing still. live('start') is odometry only; live('start', map=True)
+    also builds a map, which a stop saves on the Orin."""
     data = None if what == 'state' else json.dumps(options).encode()
     req = urllib.request.Request('%s/api/live/%s' % (ORIN_PANEL, what), data,
                                  {'Content-Type': 'application/json'})

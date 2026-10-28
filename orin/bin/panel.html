@@ -418,7 +418,7 @@ async function lTick(){
   lReq();
 }
 $('blstart').onclick=()=>{$('blstart').disabled=true;
-  post('/api/live/start').then(lTick);};
+  post('/api/live/start',{map:true}).then(lTick);};
 $('blstop').onclick=()=>{$('blstop').disabled=true;post('/api/live/stop',{one_floor:$('lone').checked,name:$('lname').value}).then(()=>{lTick();tick();});};
 if(TAB==='live'){lTick();setInterval(lTick,200);addEventListener('resize',lReq);}
 

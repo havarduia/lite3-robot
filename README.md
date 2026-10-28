@@ -185,7 +185,8 @@ docs/                  the documentation; docs/history/ has lab notes
   costmap for 15 s, he walked into them, and RPP held him at 0.15 m/s for 86% of
   the crossing (0.50 off the bridge). `env/camera.launch.py` now uses the High
   Accuracy preset (3), which keeps about 40% of the points (3900 -> 1600 per cloud).
-  Not yet re-tested on the bridge.
+  Re-tested the same day (`logs/2026-10-28_bridge-depth-2`): no phantoms, and 0.50 m/s
+  over most of the bridge both ways.
 
 ## Known limitations
 

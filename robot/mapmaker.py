@@ -77,13 +77,13 @@ def start(bot):
         raise Lite3Error('he is still moving: let him stand still where the map should start')
     for attempt in (1, 2):
         _stop('before-map' if attempt == 1 else 'tilted-start')
-        r = live('start')
+        r = live('start', map=True)         # replaces the relay's odometry-only run, if one came back
         if not r.get('ok') and 'already running' not in str(r.get('error')):
             raise Lite3Error('the Orin would not start FAST-LIO2: %s' % r)
-        # the relay starts one itself when he stands still: that one counts if it is fresh
+        # only a map run counts: the relay's own runs (odometry only) build none
         # Fresh: its clock under FRESH_S. Just after a start the Orin can still report the
         # previous run's time and distance (seen 2026-10-14: refused as "tilted" at 0.3 deg).
-        s = _wait(lambda: (lambda s: s if s.get('running') and SETTLE_S <= s.get('t', 0) < FRESH_S else None)(live('state')),
+        s = _wait(lambda: (lambda s: s if s.get('running') and s.get('map') and SETTLE_S <= s.get('t', 0) < FRESH_S else None)(live('state')),
                   WAIT_S, 'start a fresh FAST-LIO2 run')
         tilt, dist = abs(s.get('tilt') or 0.0), s.get('dist') or 0.0
         if tilt <= TILT_MAX_DEG and dist < 0.5:
@@ -200,7 +200,8 @@ def check():
         open(os.path.join(latest, 'gravity_aligned.ply'), 'wb').write(
             b'ply\nformat binary_little_endian 1.0\nelement vertex %d\nproperty float x\nproperty float y\n'
             b'property float z\nproperty float intensity\nend_header\n' % len(floor) + floor.tobytes())
-        orin = {'running': True, 't': 1.0, 'tilt': 0.2, 'dist': 0.0, 'state': 'idle', 'result': None, 'stops': []}
+        orin = {'running': True, 'map': False, 't': 1.0, 'tilt': 0.2, 'dist': 0.0, 'state': 'idle', 'result': None,
+                'stops': []}
 
         class Orin(http.server.BaseHTTPRequestHandler):
             def log_message(self, *a):
@@ -215,7 +216,7 @@ def check():
             def do_GET(self):
                 if self.path == '/api/live/state':
                     orin['t'] += 2.0                   # time passes for each look
-                    return self.reply(200, {k: orin[k] for k in ('running', 't', 'tilt', 'dist')})
+                    return self.reply(200, {k: orin[k] for k in ('running', 'map', 't', 'tilt', 'dist')})
                 if self.path == '/api/status':
                     return self.reply(200, {'state': orin['state'], 'result': orin['result'], 'log': []})
                 f = os.path.join(work, self.path.lstrip('/'))
@@ -230,7 +231,9 @@ def check():
                         orin['result'] = '/maps/%s.html' % run
                     return self.reply(200, {'ok': True})
                 if self.path == '/api/live/start':
-                    orin.update(running=True, t=0.0, dist=0.0)
+                    if orin['running'] and not (body.get('map') and not orin['map']):
+                        return self.reply(409, {'error': 'live SLAM is already running'})
+                    orin.update(running=True, map=bool(body.get('map')), t=0.0, dist=0.0)
                     return self.reply(200, {'ok': True})
                 return self.reply(404, {})
 
@@ -276,6 +279,14 @@ def check():
             orin.update(running=True, result=None)
             save('hall', root=root)
             assert os.path.exists(os.path.join(d, 'map.pgm.prev')) and len(places.load('hall', root)) == 1
+            # the relay's odometry-only run came back after the stop: the map run replaces it
+            orin.update(running=True, map=False, tilt=0.2)
+            real_stop = globals()['_stop']
+            globals()['_stop'] = lambda name: None
+            try:
+                assert 'recording' in start(bot) and orin['map']
+            finally:
+                globals()['_stop'] = real_stop
             # a run that starts tilted is started again, then given up on
             orin.update(running=True, tilt=4.0)
             try:
