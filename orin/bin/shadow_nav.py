@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """shadow_nav - MPPI follows the Jetson's route in shadow: it steers nothing (nav_stack_migration.md, step 3).
 
-The Jetson's robot/shadow_link.py sends Nav2's route (in base_link, the moment it was planned)
-and the command RPP gives. This puts the route in front of the robot as the Orin sees him and
-hands it to the Orin's controller_server (MPPI on the terrain map); MPPI's command, on
+The Jetson's robot/shadow_link.py sends Nav2's route (map coordinates, with where locate.py
+had him on the map and when) and the command RPP gives. This puts the route into the Orin's
+odom by its own pose of that moment and hands it to the Orin's controller_server (MPPI on the terrain map); MPPI's command, on
 /shadow/cmd_vel, goes nowhere but the log next to RPP's.
 
 Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw), /odom with speeds, and
@@ -12,6 +12,7 @@ Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw), /odom with 
     python3 shadow_nav.py LOG.csv        system python, ROS sourced; started by shadow.sh
     python3 shadow_nav.py check          self-check, no ROS
 """
+import collections
 import csv
 import math
 import socket
@@ -22,14 +23,16 @@ import time
 
 import numpy as np
 
-from lio_relay import MOUNT_XYZ, Q_MOUNT, join, qconj, qmul, rot, twist, wrap, yaw_of
+from lio_relay import MOUNT_XYZ, Q_MOUNT, inv, join, qconj, qmul, rot, twist, wrap, yaw_of
 
 PORT = 8044                 # robot/shadow_link.py sends here
 JETSON = '192.168.1.103'
-ROUTE = struct.Struct('<c')         # T, then float32 (x, y, yaw) triplets in base_link
+ROUTE = struct.Struct('<c4d')       # T, when (wall clock), base_link x y yaw on the map; float32 (x, y, yaw) on the map follow
 CMD = struct.Struct('<c3d')         # V, RPP's vx, vy, wz
 ROUTE_STALE_S = 5.0         # no route for this long: the Jetson's goal is over, MPPI lets go too
 CMD_STALE_S = 0.5           # an RPP command older than this is logged as none
+POSES_KEPT = 200            # 20 s of own poses, to find where he was when the Jetson placed him
+MATCH_S = 0.3               # own pose at most this far from that moment, or the route is dropped
 
 
 def base_of(p, q):
@@ -39,14 +42,17 @@ def base_of(p, q):
     return p[0] - lever[0], p[1] - lever[1], yaw_of(q_base)
 
 
-def route_in_odom(base, route):
-    """Route points (x, y, yaw in base_link) -> odom, with base_link at `base` (x, y, yaw)."""
-    return [join(base, r) for r in route]
+def route_in_odom(base_odom, base_map, route):
+    """Route points on the map -> odom, base_link being at base_odom and base_map at the same moment."""
+    map_in_odom = join(base_odom, inv(base_map))
+    return [join(map_in_odom, r) for r in route]
 
 
 def unpack_route(data):
+    """(when, base_link on the map, route points on the map)."""
+    _, when, x, y, yaw = ROUTE.unpack(data[:ROUTE.size])
     a = np.frombuffer(data, np.float32, offset=ROUTE.size).reshape(-1, 3)
-    return [tuple(map(float, r)) for r in a]
+    return when, (x, y, yaw), [tuple(map(float, r)) for r in a]
 
 
 def main(log_path):
@@ -67,8 +73,9 @@ def main(log_path):
     tf_pub = TransformBroadcaster(node)
     follow = ActionClient(node, FollowPath, 'follow_path')
     s = {'base': None, 'prev': None, 'rpp': None, 'route_at': None, 'goal': None, 'sent': 0}
+    poses = collections.deque(maxlen=POSES_KEPT)       # (wall clock, x, y, yaw) in odom
     lock = threading.Lock()
-    out = open(log_path, 'w', newline='')
+    out = open(log_path, 'w', newline='', buffering=1)     # a line at a time: readable during a run
     log = csv.writer(out)
     log.writerow(['t', 'x', 'y', 'yaw', 'rpp_vx', 'rpp_vy', 'rpp_wz', 'mppi_vx', 'mppi_vy', 'mppi_wz', 'routes'])
 
@@ -79,6 +86,7 @@ def main(log_path):
         now = (t, x, y, yaw)
         vx, vy, wz = twist(s['prev'], now) if s['prev'] and 0 < t - s['prev'][0] < 1.0 else (0.0, 0.0, 0.0)
         s['prev'], s['base'] = now, (x, y, yaw)
+        poses.append((time.time(), x, y, yaw))
         tf = TransformStamped()
         tf.header.stamp, tf.header.frame_id, tf.child_frame_id = m.header.stamp, 'odom', 'base_link'
         tf.transform.translation.x, tf.transform.translation.y = x, y
@@ -108,12 +116,13 @@ def main(log_path):
                      + (['%.3f' % v for v in rpp[1:]] if rpp else ['', '', ''])
                      + ['%.3f' % c.linear.x, '%.3f' % c.linear.y, '%.3f' % c.angular.z, s['sent']])
 
-    def give(route):
-        if s['base'] is None or len(route) < 2:
+    def give(when, base_map, route):
+        then = min(poses, key=lambda p: abs(p[0] - when), default=None)
+        if then is None or abs(then[0] - when) > MATCH_S or len(route) < 2:
             return
         p = Path()
         p.header.stamp, p.header.frame_id = node.get_clock().now().to_msg(), 'odom'
-        for x, y, yaw in route_in_odom(s['base'], route):
+        for x, y, yaw in route_in_odom(then[1:], base_map, route):
             ps = PoseStamped()
             ps.header = p.header
             ps.pose.position.x, ps.pose.position.y = x, y
@@ -144,14 +153,14 @@ def main(log_path):
             if data[:1] == b'V' and len(data) == CMD.size:
                 with lock:
                     s['rpp'] = (time.monotonic(),) + CMD.unpack(data)[1:]
-            elif data[:1] == b'T' and (len(data) - ROUTE.size) % 12 == 0:
+            elif data[:1] == b'T' and len(data) > ROUTE.size and (len(data) - ROUTE.size) % 12 == 0:
                 s['route_at'] = time.monotonic()
                 s['route'] = unpack_route(data)
 
     def take_route():
         r = s.pop('route', None)
         if r is not None:
-            give(r)
+            give(*r)
 
     node.create_subscription(Odometry, '/state_estimation', odom, 20)
     node.create_subscription(PointCloud2, '/terrain_map', terrain, 2)
@@ -176,13 +185,14 @@ def check():
     qz = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))
     x, y, yaw = base_of((1.0, 2.0 + MOUNT_XYZ[0], 0.0), qmul(qz, Q_MOUNT))
     assert abs(x - 1.0) < 1e-9 and abs(y - 2.0) < 1e-9 and abs(yaw - math.pi / 2) < 1e-9, (x, y, yaw)
-    # a route 1 m ahead of a robot facing +y at (1, 2) is at (1, 3) in odom
-    (rx, ry, ryaw), = route_in_odom((1.0, 2.0, math.pi / 2), [(1.0, 0.0, 0.0)])
-    assert abs(rx - 1.0) < 1e-9 and abs(ry - 3.0) < 1e-9 and abs(wrap(ryaw - math.pi / 2)) < 1e-9
+    # he is at (1, 2) facing +y in odom and at (5, 5) facing +x on the map: a map point 1 m ahead
+    # of him on the map, (6, 5), is 1 m ahead in odom, (1, 3)
+    (rx, ry, ryaw), = route_in_odom((1.0, 2.0, math.pi / 2), (5.0, 5.0, 0.0), [(6.0, 5.0, 0.0)])
+    assert abs(rx - 1.0) < 1e-9 and abs(ry - 3.0) < 1e-9 and abs(wrap(ryaw - math.pi / 2)) < 1e-9, (rx, ry, ryaw)
     # the datagram round trip
     pts = [(0.0, 0.0, 0.0), (0.5, -0.25, 1.5)]
-    data = ROUTE.pack(b'T') + np.array(pts, np.float32).tobytes()
-    assert unpack_route(data) == pts, unpack_route(data)
+    data = ROUTE.pack(b'T', 12.5, 1.0, 2.0, 0.5) + np.array(pts, np.float32).tobytes()
+    assert unpack_route(data) == (12.5, (1.0, 2.0, 0.5), pts), unpack_route(data)
     print('shadow_nav ok')
 
 
