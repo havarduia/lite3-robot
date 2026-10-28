@@ -1,6 +1,6 @@
 #!/bin/bash
 # shadow.sh start NAME | stop | state - MPPI in shadow on the Orin (nav_stack_migration.md, step 3):
-# terrain_level -> terrainAnalysis -> controller_server (MPPI), following the Jetson's route
+# terrain_level (orin/lite3_terrain, C++) -> terrainAnalysis -> controller_server (MPPI), following the Jetson's route
 # (robot/shadow_link.py on the Jetson). Its commands go to /shadow/cmd_vel and a log, never
 # to the robot. Needs FAST-LIO2 running (lio_live). Log: ~/shadow/NAME.csv; nodes' output
 # in ~/shadow/NAME.log. Stopped with TERM: a script's background jobs ignore SIGINT.
@@ -15,13 +15,14 @@ start)
     mkdir -p ~/shadow
     log=~/shadow/$name.log
     cd ~/bin
-    # CMU's terrainAnalysis parameters, with the two the bridge showed wrong for our lidar height
+    # CMU's terrainAnalysis parameters, with the two the bridge showed wrong for our lidar height,
+    # and his height: above 0.7 m he walks under it (CMU's 1.5 m made overhangs in doors obstacles)
     ta=$(sed -n 's/.*name="\([^"]*\)" value="\([^"]*\)".*/-p \1:=\2/p' \
          ~/cmu_ws/src/terrain_analysis/launch/terrain_analysis.launch)
     {
-        python3 terrain_level.py >> $log 2>&1 & echo $!
+        ~/cmu_ws/install/lite3_terrain/lib/lite3_terrain/terrain_level >> $log 2>&1 & echo $!
         ~/cmu_ws/install/terrain_analysis/lib/terrain_analysis/terrainAnalysis --ros-args $ta \
-            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 >> $log 2>&1 & echo $!
+            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 >> $log 2>&1 & echo $!
         python3 shadow_nav.py ~/shadow/$name.csv >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_controller/controller_server --ros-args --params-file shadow_nav2.yaml \
             -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!

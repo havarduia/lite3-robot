@@ -65,6 +65,10 @@ robot.
   local changes that are not committed there; `orin/fast_lio-lite3.patch` is a copy
   (2026-10-28). Rebuild with `cmake --build ~/livox_ws/build/fast_lio`, then copy the
   binary into `install/` while no run is going.
+- **The Orin's `~/cmu_ws`** (the MPPI move, `~/nav_stack_migration.md`): CMU's `terrain_analysis`
+  (a sparse clone of `jizhang-cmu/autonomy_stack_go2` @43d5f54, not ours) and `lite3_terrain`,
+  a symlink to `~/lite3_terrain`, which is a copy of `orin/lite3_terrain/` here. After changing it,
+  copy it over and run `colcon build --packages-select lite3_terrain` in `~/cmu_ws`.
 - The Orin also has `~/robot_pc/`, an older Nav2 setup from before this
   repository took over navigation.
 - The vendor code lives on the robot, outside this repository. Our changes

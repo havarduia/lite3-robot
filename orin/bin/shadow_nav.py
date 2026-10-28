@@ -6,8 +6,8 @@ had him on the map and when) and the command RPP gives. This puts the route into
 odom by its own pose of that moment and hands it to the Orin's controller_server (MPPI on the terrain map); MPPI's command, on
 /shadow/cmd_vel, goes nowhere but the log next to RPP's.
 
-Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw), /odom with speeds, and
-/terrain_h, the terrain map with z set to its height above the ground (what the costmap marks).
+Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw) and /odom with speeds.
+/terrain_h, what the costmap marks, comes from orin/lite3_terrain's terrain_level.
 
     python3 shadow_nav.py LOG.csv        system python, ROS sourced; started by shadow.sh
     python3 shadow_nav.py check          self-check, no ROS
@@ -62,13 +62,11 @@ def main(log_path):
     from nav2_msgs.action import FollowPath
     from nav_msgs.msg import Odometry, Path
     from rclpy.action import ActionClient
-    from sensor_msgs.msg import PointCloud2
     from tf2_ros import TransformBroadcaster
 
     rclpy.init()
     node = rclpy.create_node('shadow_nav')
     odom_pub = node.create_publisher(Odometry, '/odom', 10)
-    terrain_pub = node.create_publisher(PointCloud2, '/terrain_h', 2)
     path_pub = node.create_publisher(Path, '/shadow/route', 2)
     tf_pub = TransformBroadcaster(node)
     follow = ActionClient(node, FollowPath, 'follow_path')
@@ -98,15 +96,6 @@ def main(log_path):
         o2.pose.pose.orientation = tf.transform.rotation
         o2.twist.twist.linear.x, o2.twist.twist.linear.y, o2.twist.twist.angular.z = vx, vy, wz
         odom_pub.publish(o2)
-
-    def terrain(m):
-        # x, y as they are (level and odom share them); z := height above the local ground
-        off = {f.name: f.offset for f in m.fields}
-        a = np.frombuffer(bytes(m.data), np.float32).reshape(-1, m.point_step // 4).copy()
-        a[:, off['z'] // 4] = a[:, off['intensity'] // 4]
-        m.data = a.tobytes()
-        m.header.frame_id = 'odom'
-        terrain_pub.publish(m)
 
     def mppi(c):
         with lock:
@@ -163,7 +152,6 @@ def main(log_path):
             give(*r)
 
     node.create_subscription(Odometry, '/state_estimation', odom, 20)
-    node.create_subscription(PointCloud2, '/terrain_map', terrain, 2)
     node.create_subscription(Twist, '/shadow/cmd_vel', mppi, 10)
     node.create_timer(0.1, take_route)      # the ROS calls stay on the spinning thread
     node.create_timer(1.0, watch)

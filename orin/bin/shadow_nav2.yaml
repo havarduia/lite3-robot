@@ -76,7 +76,9 @@ local_costmap:
       resolution: 0.05
       transform_tolerance: 0.3
       footprint: "[[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]]"
-      footprint_padding: 0.05
+      # 0, not the Jetson's 0.05: the doors leave 5-20 cm beside the padded footprint, and every
+      # MPPI sample clipped a frame (big_walk 2026-10-28). The footprint is the body; the legs fit in it.
+      footprint_padding: 0.0
       plugins: [terrain_layer, inflation_layer]
       # /terrain_h is terrainAnalysis's map with z = height above the local ground
       # (shadow_nav.py): above 0.15 m marks, everything clears the way to it.
