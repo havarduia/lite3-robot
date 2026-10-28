@@ -186,8 +186,9 @@ class Nav:
         for pgid in self._nav_groups():
             _kill_group(pgid, timeout, self._wait)
             killed += 1
-        self._node.grid = self._node.local_grid = None
         time.sleep(1.0)
+        # after the sleep: a costmap the dead stack sent last could still land just after the kill
+        self._node.grid = self._node.local_grid = None
         return killed
 
     def nav_start(self, timeout=40.0, floor=None):

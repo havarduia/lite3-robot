@@ -118,9 +118,18 @@ class _Node(Node):
     def grid(self):
         """Nav2's global costmap, decoded from the newest bytes the first time it is asked for."""
         raw = self._grid_raw
-        if raw is not None and self._grid[0] is not raw:
+        if raw is None:
+            return None
+        if self._grid[0] is not raw:
             self._grid = (raw, deserialize_message(raw, OccupancyGrid))
         return self._grid[1]
+
+    @grid.setter
+    def grid(self, value):
+        """Only None: nav_stop() forgets the costmap."""
+        if value is not None:
+            raise ValueError('grid comes from /global_costmap/costmap; only None can be set')
+        self._grid_raw, self._grid = None, (None, None)
 
     def __init__(self):
         super().__init__('lite3_api')
