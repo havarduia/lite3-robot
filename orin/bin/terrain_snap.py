@@ -5,12 +5,13 @@ The Orin has no matplotlib: this saves what to plot, and the laptop draws it.
 Each snapshot is the map's points (x, y, z, height above ground) and the robot's
 levelled pose (/state_estimation) at that moment, all in terrain_level's 'level' frame.
 
-    python3 terrain_snap.py OUT.npz      ROS sourced; Ctrl-C (SIGINT) writes OUT.npz
+    python3 terrain_snap.py OUT.npz      ROS sourced; SIGINT or SIGTERM writes OUT.npz
 """
 import sys
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
 
@@ -44,11 +45,12 @@ def main(out):
     node.create_subscription(PointCloud2, '/terrain_map', terrain, 2)
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):    # rclpy turns SIGINT/SIGTERM into the latter
         pass
-    np.savez_compressed(out, t=np.array([s[0] for s in snaps]), pose=np.array([s[2] for s in snaps]),
-                        **{'map%03d' % i: s[1] for i, s in enumerate(snaps)})
-    print('%d snapshots -> %s' % (len(snaps), out))
+    finally:
+        np.savez_compressed(out, t=np.array([s[0] for s in snaps]), pose=np.array([s[2] for s in snaps]),
+                            **{'map%03d' % i: s[1] for i, s in enumerate(snaps)})
+        print('%d snapshots -> %s' % (len(snaps), out), flush=True)
 
 
 if __name__ == '__main__':

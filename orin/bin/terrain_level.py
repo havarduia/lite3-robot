@@ -16,7 +16,7 @@ import sys
 
 import numpy as np
 
-GRAVITY_N = 20          # /lio/gravity estimates averaged before the frame is fixed (~4 s at 5 Hz)
+GRAVITY_N = 20          # /lio/gravity estimates averaged before the frame is fixed (2 s at 10 Hz)
 FRAME = 'level'
 
 
