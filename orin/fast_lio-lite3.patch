@@ -1,0 +1,393 @@
+# The Orin's local changes to FAST-LIO2 (~/livox_ws/src/FAST_LIO), from https://github.com/hku-mars/FAST_LIO.git at a4743b0.
+# The '[lite3]' lines; 'received'/'preprocess' counters added 2026-10-28. Apply with git apply there.
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index be3040b..1cc07c2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -57,8 +57,8 @@ find_package(sensor_msgs REQUIRED)
+ find_package(std_msgs REQUIRED)
+ find_package(std_srvs REQUIRED)
+ find_package(visualization_msgs REQUIRED)
+-find_package(pcl_ros REQUIRED)
+ find_package(pcl_conversions REQUIRED)
++find_package(tf2_ros REQUIRED)
+ find_package(livox_ros_driver2 REQUIRED)
+ find_package(rosidl_default_generators REQUIRED)
+ 
+@@ -71,8 +71,8 @@ set(dependencies
+   std_msgs
+   std_srvs
+   visualization_msgs
+-  pcl_ros
+   pcl_conversions
++  tf2_ros
+   livox_ros_driver2
+ )
+ 
+diff --git a/package.xml b/package.xml
+index 8c39e18..5d54a64 100644
+--- a/package.xml
++++ b/package.xml
+@@ -25,8 +25,8 @@
+   <depend>sensor_msgs</depend>
+   <depend>common_interfaces</depend>
+   <depend>tf2</depend>
+-  <depend>pcl_ros</depend>
+   <depend>pcl_conversions</depend>
++  <depend>tf2_ros</depend>
+   <depend>livox_ros_driver2</depend>
+ 
+   <exec_depend>rosidl_default_runtime</exec_depend>
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index e5d9950..4a808b2 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -60,6 +60,7 @@
+ #include <geometry_msgs/msg/transform_stamped.hpp>
+ #include <geometry_msgs/msg/vector3.hpp>
+ #include <livox_ros_driver2/msg/custom_msg.hpp>
++#include <geometry_msgs/msg/vector3_stamped.hpp>
+ #include "preprocess.h"
+ #include <ikd-Tree/ikd_Tree.h>
+ 
+@@ -82,6 +83,14 @@ const float MOV_THRESHOLD = 1.5f;
+ double time_diff_lidar_to_imu = 0.0;
+ 
+ mutex mtx_buffer;
++// lite3 diagnostics, logged every 100 scans (see timer_callback)
++int lite3_imu_gaps = 0;
++double lite3_imu_gap_max = 0.0;
++std::vector<double> lite3_proc_ms;
++// lite3: scans the lidar callback took in, and its preprocessing time: fewer in
++// than processed out means DDS dropped them before the callback (queue of 20)
++int lite3_rx = 0;
++std::vector<double> lite3_pre_ms;
+ condition_variable sig_buffer;
+ 
+ string root_dir = ROOT_DIR;
+@@ -282,10 +291,17 @@ void lasermap_fov_segment()
+ 
+ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg) 
+ {
++    // lite3: preprocess (parse + sort ~20k points) BEFORE taking the lock, so
++    // the IMU callback, now on its own thread, is never held up behind it.
++    double preprocess_start_time = omp_get_wtime();
++    PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
++    p_pre->process(msg, ptr);
++    const double lite3_pre = (omp_get_wtime() - preprocess_start_time) * 1000.0;
+     mtx_buffer.lock();
++    lite3_rx++;
++    lite3_pre_ms.push_back(lite3_pre);
+     scan_count ++;
+     double cur_time = get_time_sec(msg->header.stamp);
+-    double preprocess_start_time = omp_get_wtime();
+     if (!is_first_lidar && cur_time < last_timestamp_lidar)
+     {
+         std::cerr << "lidar loop back, clear buffer" << std::endl;
+@@ -296,8 +312,6 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
+         is_first_lidar = false;
+     }
+ 
+-    PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
+-    p_pre->process(msg, ptr);
+     lidar_buffer.push_back(ptr);
+     time_buffer.push_back(cur_time);
+     last_timestamp_lidar = cur_time;
+@@ -370,6 +384,13 @@ void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
+         std::cerr << "lidar loop back, clear buffer" << std::endl;
+         imu_buffer.clear();
+     }
++    // lite3: count IMU gaps - FAST-LIO integrates straight across them, and on
++    // a trotting robot (~3 g peaks) a missing stretch corrupts the state.
++    if (last_timestamp_imu > 0 && timestamp - last_timestamp_imu > 0.015)
++    {
++        lite3_imu_gaps++;
++        lite3_imu_gap_max = std::max(lite3_imu_gap_max, timestamp - last_timestamp_imu);
++    }
+ 
+     last_timestamp_imu = timestamp;
+ 
+@@ -382,6 +403,9 @@ double lidar_mean_scantime = 0.0;
+ int    scan_num = 0;
+ bool sync_packages(MeasureGroup &meas)
+ {
++    // lite3: the sensor callbacks now run on their own thread (see main), so
++    // the buffers they fill must be locked here too.
++    std::lock_guard<std::mutex> lite3_lock(mtx_buffer);
+     if (lidar_buffer.empty() || imu_buffer.empty()) {
+         return false;
+     }
+@@ -918,21 +942,35 @@ public:
+             cout << "~~~~"<<ROOT_DIR<<" doesn't exist" << endl;
+ 
+         /*** ROS subscribe initialization ***/
++        // lite3: sensors get their own callback groups, so the multi-threaded
++        // executor in main() serves them while timer_callback processes a scan.
++        imu_cbg_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        lidar_cbg_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        rclcpp::SubscriptionOptions imu_opts, sensor_opts;
++        imu_opts.callback_group = imu_cbg_;
++        sensor_opts.callback_group = lidar_cbg_;
+         if (p_pre->lidar_type == AVIA)
+         {
+             sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(lid_topic, 20, livox_pcl_cbk);
+         }
+         else
+         {
+-            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
++            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS().keep_last(20), standard_pcl_cbk, sensor_opts);
+         }
+-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
++        // lite3: was a queue of 10 (50 ms at 200 Hz) on the same thread as the
++        // scan processing, so any scan slower than 50 ms silently dropped IMU
++        // samples. Now 2 s deep and on its own callback group / thread.
++        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::QoS(400), imu_cbk, imu_opts);
+         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);
+         pubLaserCloudFull_body_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 20);
+         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
+         pubLaserCloudMap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 20);
+         pubOdomAftMapped_ = this->create_publisher<nav_msgs::msg::Odometry>("/Odometry", 20);
+         pubPath_ = this->create_publisher<nav_msgs::msg::Path>("/path", 20);
++        // lite3: FAST-LIO's own gravity estimate in camera_init - accelerometer
++        // bias already accounted for - so consumers can level the map with the
++        // same "down" the trajectory was integrated against.
++        pubGrav_ = this->create_publisher<geometry_msgs::msg::Vector3Stamped>("/lio/gravity", 20);
+         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+ 
+         //------------------------------------------------------------------------------------------------------
+@@ -959,6 +997,33 @@ private:
+     {
+         if(sync_packages(Measures))
+         {
++            const double lite3_t0 = omp_get_wtime();
++            struct Lite3Timer {
++                double t0; rclcpp::Logger log;
++                ~Lite3Timer() {
++                    lite3_proc_ms.push_back((omp_get_wtime() - t0) * 1000.0);
++                    if (lite3_proc_ms.size() >= 100) {
++                        std::vector<double> v = lite3_proc_ms;
++                        std::sort(v.begin(), v.end());
++                        int rx;
++                        std::vector<double> pre;
++                        {
++                            std::lock_guard<std::mutex> lk(mtx_buffer);
++                            rx = lite3_rx;
++                            pre.swap(lite3_pre_ms);
++                            lite3_rx = 0;
++                        }
++                        std::sort(pre.begin(), pre.end());
++                        RCLCPP_INFO(log, "[lite3] last 100 scans: processing p50 %.1f ms, max %.1f ms; IMU gaps >15 ms: %d (longest %.0f ms); "
++                                    "received %d, preprocess p50 %.1f ms, max %.1f ms",
++                                    v[50], v.back(), lite3_imu_gaps, lite3_imu_gap_max * 1000.0, rx,
++                                    pre.empty() ? 0.0 : pre[pre.size() / 2], pre.empty() ? 0.0 : pre.back());
++                        lite3_proc_ms.clear();
++                        lite3_imu_gaps = 0;
++                        lite3_imu_gap_max = 0.0;
++                    }
++                }
++            } lite3_timer{lite3_t0, this->get_logger()};
+             if (flg_first_scan)
+             {
+                 first_lidar_time = Measures.lidar_beg_time;
+@@ -1062,6 +1127,15 @@ private:
+ 
+             /******* Publish odometry *******/
+             publish_odometry(pubOdomAftMapped_, tf_broadcaster_);
++            {
++                geometry_msgs::msg::Vector3Stamped g;
++                g.header.frame_id = "camera_init";
++                g.header.stamp = get_ros_time(lidar_end_time);
++                g.vector.x = state_point.grav[0];
++                g.vector.y = state_point.grav[1];
++                g.vector.z = state_point.grav[2];
++                pubGrav_->publish(g);
++            }
+ 
+             /*** add the feature points to map kdtree ***/
+             t3 = omp_get_wtime();
+@@ -1134,6 +1208,7 @@ private:
+     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudEffect_;
+     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudMap_;
+     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubOdomAftMapped_;
++    rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pubGrav_;
+     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath_;
+     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;
+     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_;
+@@ -1141,6 +1216,7 @@ private:
+ 
+     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+     rclcpp::TimerBase::SharedPtr timer_;
++    rclcpp::CallbackGroup::SharedPtr imu_cbg_, lidar_cbg_;
+     rclcpp::TimerBase::SharedPtr map_pub_timer_;
+     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr map_save_srv_;
+ 
+@@ -1160,7 +1236,12 @@ int main(int argc, char** argv)
+ 
+     signal(SIGINT, SigHandle);
+ 
+-    rclcpp::spin(std::make_shared<LaserMappingNode>());
++    // lite3: multi-threaded, so IMU and LiDAR callbacks (own groups) run while
++    // the timer callback processes a scan.
++    rclcpp::executors::MultiThreadedExecutor exec(rclcpp::ExecutorOptions(), 3);
++    auto node = std::make_shared<LaserMappingNode>();
++    exec.add_node(node);
++    exec.spin();
+ 
+     if (rclcpp::ok())
+         rclcpp::shutdown();
+diff --git a/src/preprocess.cpp b/src/preprocess.cpp
+index 9015782..6a24b8d 100644
+--- a/src/preprocess.cpp
++++ b/src/preprocess.cpp
+@@ -1,3 +1,5 @@
++#include <algorithm>
++#include <cmath>
+ #include "preprocess.h"
+ 
+ #include <pcl/common/common.h>
+@@ -475,85 +477,45 @@ void Preprocess::velodyne_handler(const sensor_msgs::msg::PointCloud2::UniquePtr
+ 
+ void Preprocess::mid360_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg)
+ {
++  // MID-360 via livox_ros_driver2 PointCloud2 (xfer_format 0). The upstream
++  // version estimated point times from yaw, as for a spinning LiDAR; the
++  // MID-360's pattern is non-repetitive, and the driver gives every point an
++  // absolute timestamp, so use it: curvature = ms since the header stamp
++  // (= the scan's first point). Lines arrive interleaved, so sort by time -
++  // sync_packages takes the scan end from the LAST point.
+   pl_surf.clear();
+   pl_corn.clear();
+   pl_full.clear();
+ 
+-  pcl::PointCloud<livox_ros::LivoxPointXyzrtl> pl_orig;
++  pcl::PointCloud<livox_ros::LivoxPointXyzitlt> pl_orig;
+   pcl::fromROSMsg(*msg, pl_orig);
+   int plsize = pl_orig.points.size();
+   if (plsize == 0)
+     return;
+-  pl_surf.reserve(plsize);
+-
+-  /*** These variables only works when no point timestamps given ***/
+-  double omega_l = 0.361 * SCAN_RATE;  // scan angular velocity
+-  std::vector<bool> is_first(N_SCANS, true);
+-  std::vector<double> yaw_fp(N_SCANS, 0.0);    // yaw of first scan point
+-  std::vector<float> yaw_last(N_SCANS, 0.0);   // yaw of last scan point
+-  std::vector<float> time_last(N_SCANS, 0.0);  // last offset time
+-  /*****************************************************************/
+-
+-  given_offset_time = false;
+-  double yaw_first = atan2(pl_orig.points[0].y, pl_orig.points[0].x) * 57.29578;
+-  double yaw_end = yaw_first;
+-  int layer_first = pl_orig.points[0].line;
+-  for (uint i = plsize - 1; i > 0; i--)
+-  {
+-    if (pl_orig.points[i].line == layer_first)
+-    {
+-      yaw_end = atan2(pl_orig.points[i].y, pl_orig.points[i].x) * 57.29578;
+-      break;
+-    }
+-  }
++  pl_surf.reserve(plsize / std::max(point_filter_num, 1) + 1);
++  const double t0 = rclcpp::Time(msg->header.stamp).nanoseconds();
+ 
+-  for (uint i = 0; i < plsize; ++i)
++  for (int i = 0; i < plsize; ++i)
+   {
+-    PointType added_pt;
+-    added_pt.normal_x = 0;
+-    added_pt.normal_y = 0;
+-    added_pt.normal_z = 0;
+-    added_pt.x = pl_orig.points[i].x;
+-    added_pt.y = pl_orig.points[i].y;
+-    added_pt.z = pl_orig.points[i].z;
+-    added_pt.intensity = pl_orig.points[i].reflectivity;
+-    added_pt.curvature = 0.;
+-
+-    int layer = pl_orig.points[i].line;
+-    double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
+-
+-    if (is_first[layer])
+-    {
+-      // printf("layer: %d; is first: %d", layer, is_first[layer]);
+-      yaw_fp[layer] = yaw_angle;
+-      is_first[layer] = false;
+-      added_pt.curvature = 0.0;
+-      yaw_last[layer] = yaw_angle;
+-      time_last[layer] = added_pt.curvature;
++    if (i % point_filter_num != 0)
+       continue;
+-    }
+-
+-    // compute offset time
+-    if (yaw_angle <= yaw_fp[layer])
+-    {
+-      added_pt.curvature = (yaw_fp[layer] - yaw_angle) / omega_l;
+-    }
+-    else
+-    {
+-      added_pt.curvature = (yaw_fp[layer] - yaw_angle + 360.0) / omega_l;
+-    }
+-
+-    if (added_pt.curvature < time_last[layer])
+-      added_pt.curvature += 360.0 / omega_l;
+-
+-    yaw_last[layer] = yaw_angle;
+-    time_last[layer] = added_pt.curvature;
+-
+-    if (added_pt.x * added_pt.x + added_pt.y * added_pt.y + added_pt.z * added_pt.z > (blind * blind))
+-    {
+-      pl_surf.push_back(std::move(added_pt));
+-    }
++    const auto &p = pl_orig.points[i];
++    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
++      continue;
++    const double r2 = p.x * p.x + p.y * p.y + p.z * p.z;
++    if (r2 <= blind * blind)
++      continue;
++    PointType added_pt;
++    added_pt.x = p.x;
++    added_pt.y = p.y;
++    added_pt.z = p.z;
++    added_pt.intensity = p.intensity;
++    added_pt.normal_x = added_pt.normal_y = added_pt.normal_z = 0;
++    added_pt.curvature = float((p.timestamp - t0) * 1e-6);   // ms
++    pl_surf.push_back(added_pt);
+   }
++  std::sort(pl_surf.points.begin(), pl_surf.points.end(),
++            [](const PointType &a, const PointType &b) { return a.curvature < b.curvature; });
+ }
+ 
+ void Preprocess::default_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg)
+diff --git a/src/preprocess.h b/src/preprocess.h
+index d4d6ddc..07f246f 100644
+--- a/src/preprocess.h
++++ b/src/preprocess.h
+@@ -123,6 +123,28 @@ typedef struct {
+   uint8_t line;       /**< Laser line id     */
+ } LivoxPointXyzrtl;
+ }
++// livox_ros_driver2 with xfer_format 0 (PointCloud2): fields x y z intensity
++// tag line timestamp, timestamp = absolute ns per point (header = first).
++namespace livox_ros {
++struct EIGEN_ALIGN16 LivoxPointXyzitlt {
++  PCL_ADD_POINT4D;
++  float intensity;
++  uint8_t tag;
++  uint8_t line;
++  double timestamp;
++  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
++};
++}
++POINT_CLOUD_REGISTER_POINT_STRUCT(livox_ros::LivoxPointXyzitlt,
++    (float, x, x)
++    (float, y, y)
++    (float, z, z)
++    (float, intensity, intensity)
++    (uint8_t, tag, tag)
++    (uint8_t, line, line)
++    (double, timestamp, timestamp)
++)
++
+ POINT_CLOUD_REGISTER_POINT_STRUCT(livox_ros::LivoxPointXyzrtl,
+     (float, x, x)
+     (float, y, y)

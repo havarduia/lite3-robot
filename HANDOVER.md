@@ -61,6 +61,10 @@ robot.
   gives (`jetson-lite3`) is out of date. Three files
   are copies of this repository's: `lio_relay.py`, `cloud_locate.py` and
   `cloudreg.py`. Copy them over again after you change them here.
+- **FAST-LIO2 on the Orin** (`~/livox_ws/src/FAST_LIO`, upstream hku-mars) carries
+  local changes that are not committed there; `orin/fast_lio-lite3.patch` is a copy
+  (2026-10-28). Rebuild with `cmake --build ~/livox_ws/build/fast_lio`, then copy the
+  binary into `install/` while no run is going.
 - The Orin also has `~/robot_pc/`, an older Nav2 setup from before this
   repository took over navigation.
 - The vendor code lives on the robot, outside this repository. Our changes
