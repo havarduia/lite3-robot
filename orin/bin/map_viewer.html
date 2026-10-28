@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>__NAME__ &middot; point cloud</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0a0c10; --panel:rgba(18,21,27,.82); --line:#262b34;
+  --text:#e7e9ee; --dim:#9298a3; --accent:#6aa9ff; --good:#5fd08a;
+  --r:12px; --pad:14px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);overflow:hidden;
+  font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+#c{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#c.dragging{cursor:grabbing}
+
+.panel{position:fixed;background:var(--panel);backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:0 8px 28px rgba(0,0,0,.45)}
+
+/* ---- title card ---- */
+#info{top:max(14px,env(safe-area-inset-top));left:14px;padding:var(--pad) 16px;
+  max-width:min(340px,calc(100vw - 28px))}
+#info h1{margin:0 0 2px;font-size:15px;font-weight:600;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#info .sub{color:var(--dim);font-size:12px}
+#stats{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+  display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px}
+#stats dt{color:var(--dim)}
+#stats dd{margin:0;font-variant-numeric:tabular-nums}
+.tag{display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding:3px 9px;
+  border-radius:999px;font-size:11px;font-weight:500;background:rgba(95,208,138,.12);
+  color:var(--good);border:1px solid rgba(95,208,138,.25)}
+.tag.off{background:rgba(255,183,77,.12);color:#ffb74d;border-color:rgba(255,183,77,.25)}
+.tag .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* ---- controls ---- */
+#ctl{top:max(14px,env(safe-area-inset-top));right:14px;width:260px;padding:12px var(--pad)}
+#ctl .seg{flex-wrap:wrap}
+#ctl .seg button{flex:1 1 auto}
+#ctl h2{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim)}
+.row{margin-bottom:12px}
+.row:last-child{margin-bottom:2px}
+.lbl{display:flex;justify-content:space-between;color:var(--dim);font-size:11px;
+  margin-bottom:5px}
+.lbl b{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+.seg{display:flex;gap:4px}
+.seg button{flex:1}
+button{font:inherit;font-size:11px;color:var(--text);background:#191d24;
+  border:1px solid var(--line);border-radius:7px;padding:6px 4px;cursor:pointer;
+  transition:background .12s,border-color .12s,color .12s}
+button:hover{background:#222833;border-color:#39414e}
+button.on{background:rgba(106,169,255,.16);border-color:rgba(106,169,255,.5);
+  color:var(--accent)}
+input[type=range]{width:100%;height:18px;-webkit-appearance:none;appearance:none;
+  background:transparent;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#2b313b}
+input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:#2b313b}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+  margin-top:-5px;border-radius:50%;background:var(--accent);border:0}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;
+  background:var(--accent)}
+
+/* ---- legend ---- */
+#legend{left:14px;bottom:max(14px,env(safe-area-inset-bottom));padding:10px 12px;width:180px}
+#legend .cap{color:var(--dim);font-size:11px;margin-bottom:6px}
+#ramp{width:100%;height:9px;border-radius:5px;display:block}
+#legend .ends{display:flex;justify-content:space-between;color:var(--dim);
+  font-size:11px;margin-top:5px;font-variant-numeric:tabular-nums}
+
+/* ---- scale + hints ---- */
+#scale{right:14px;bottom:max(14px,env(safe-area-inset-bottom));padding:9px 12px;
+  text-align:center}
+#sbar{height:6px;border-left:2px solid var(--text);border-right:2px solid var(--text);
+  border-bottom:2px solid var(--text);margin-bottom:5px;transition:width .15s}
+#slen{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+#hint{left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom));
+  padding:7px 14px;font-size:11px;color:var(--dim);white-space:nowrap}
+kbd{font:inherit;font-size:10px;background:#1d222a;border:1px solid var(--line);
+  border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--text)}
+
+/* ---- loading / error ---- */
+#load{position:fixed;inset:0;display:grid;place-content:center;justify-items:center;
+  gap:14px;background:var(--bg);z-index:20;transition:opacity .4s}
+#load.gone{opacity:0;pointer-events:none}
+.spin{width:26px;height:26px;border:2px solid #2b313b;border-top-color:var(--accent);
+  border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#load p{margin:0;color:var(--dim);font-size:12px}
+#err{max-width:420px;text-align:center;line-height:1.6}
+
+#toggle{display:none}
+
+/* The control panel must never grow past the screen: on a landscape phone the
+   viewport is ~350 px tall, which is shorter than the panel's natural height. */
+#ctl{max-height:calc(100vh - 28px);overflow-y:auto;overscroll-behavior:contain}
+@supports(height:100dvh){#ctl{max-height:calc(100dvh - 28px)}}
+
+@media (max-width:760px),(max-height:560px){
+  #hint{display:none}
+  #info{max-width:calc(100vw - 96px)}
+  #stats,#info .tag{display:none}
+  #info.open #stats{display:grid}
+  #info.open .tag{display:inline-flex}
+  #ctl{top:auto;left:14px;right:14px;width:auto;
+       bottom:max(14px,env(safe-area-inset-bottom));display:none}
+  #ctl.open{display:block}
+  #legend{display:none}
+  #scale{top:max(14px,env(safe-area-inset-top));right:70px;bottom:auto}
+  #toggle{display:block;position:fixed;top:max(14px,env(safe-area-inset-top));right:14px;
+    width:44px;height:44px;border-radius:12px;z-index:5;font-size:17px;
+    background:var(--panel);backdrop-filter:blur(14px)}
+}
+
+/* Landscape phone: two button columns keep the sheet half as tall. */
+@media (max-height:560px){
+  #ctl{max-height:calc(100vh - 28px)}
+  #ctl .seg{flex-wrap:wrap}
+  #ctl .seg button{flex:1 1 44%}
+  #ctl h2{margin-bottom:7px}
+  .row{margin-bottom:9px}
+  #info{padding:9px 12px}
+  #info h1{font-size:14px}
+}
+@supports(height:100dvh){@media (max-height:560px){
+  #ctl{max-height:calc(100dvh - 28px)}}}
+
+/* Small phones: reclaim the side gutters. */
+@media (max-width:400px){
+  :root{--pad:11px}
+  #info{left:10px;max-width:calc(100vw - 78px)}
+  #ctl{left:10px;right:10px}
+  #toggle{right:10px}
+  #scale{right:64px;padding:7px 10px}
+}
+
+/* Pointer-less / coarse input: bigger sliders and hit targets. */
+@media (hover:none){
+  button{min-height:34px}
+  input[type=range]{height:26px}
+  input[type=range]::-webkit-slider-thumb{width:18px;height:18px;margin-top:-8px}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px}
+}
+</style></head><body>
+<canvas id="c"></canvas>
+
+<div id="load"><div class="spin"></div><p>unpacking __N__ points&hellip;</p></div>
+
+<div id="info" class="panel">
+  <h1>__NAME__</h1>
+  <div class="sub">__N__ points &middot; __NFILES__ file(s) &middot; __WHEN__</div>
+  <dl id="stats">
+    <dt>extent</dt><dd>__DIMS__ m</dd>
+    <dt>height</dt><dd>__ZLO__ &rarr; __ZHI__ m</dd>
+    <dt>sensor</dt><dd>centre, __SENSORZ__ m up</dd>
+    <dt>mount</dt><dd>__PITCH__&deg; down, __ROLL__&deg; roll</dd>
+    <dt>source</dt><dd>__SRC__</dd>
+  </dl>
+  <span class="tag" id="lvltag"><span class="dot"></span><span id="lvltxt">levelled</span></span>
+</div>
+
+<button id="toggle" class="panel" title="controls">&#9881;</button>
+
+<div id="ctl" class="panel">
+  <h2>View</h2>
+  <div class="row"><div class="seg">
+    <button data-view="iso" class="on">Iso</button>
+    <button data-view="top">Top</button>
+    <button data-view="front">Front</button>
+    <button data-view="side">Side</button>
+  </div></div>
+
+  <h2>Colour</h2>
+  <div class="row"><div class="seg" id="cmode">
+    <button data-mode="0" class="on">Height</button>
+    <button data-mode="1" id="bint">Intensity</button>
+    <button data-mode="2">Range</button>
+    <button data-mode="3">Flat</button>
+  </div></div>
+
+  <div class="row">
+    <div class="lbl"><span>Point size</span><b id="psz">1.0&times;</b></div>
+    <input type="range" id="size" min="0.3" max="4" step="0.05" value="1">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>Height band</span><b id="clipv">all</b></div>
+    <input type="range" id="cliphi" min="0" max="100" step="1" value="100">
+    <input type="range" id="cliplo" min="0" max="100" step="1" value="0">
+  </div>
+
+  <div class="row"><div class="seg">
+    <button id="blevel" class="on">Level</button>
+    <button id="bgrid" class="on">Grid</button>
+    <button id="bsensor" class="on">Sensor</button>
+    <button id="bwalls" class="on">Walls</button>
+    <button id="bpath" class="on">Path</button>
+    <button id="bpoints" class="on">Points</button>
+  </div></div>
+</div>
+
+<div id="legend" class="panel">
+  <div class="cap" id="lcap">height above floor</div>
+  <canvas id="ramp" width="256" height="9"></canvas>
+  <div class="ends"><span id="l0">0</span><span id="l1">1</span></div>
+</div>
+
+<div id="scale" class="panel"><div id="sbar" style="width:80px"></div><div id="slen">&mdash;</div></div>
+
+<div id="hint" class="panel">
+  drag rotate &middot; right-drag pan &middot; wheel zoom &middot;
+  <kbd>1</kbd>-<kbd>4</kbd> views &middot; <kbd>L</kbd> level &middot;
+  <kbd>G</kbd> grid &middot; <kbd>S</kbd> sensor &middot; <kbd>W</kbd> walls &middot; <kbd>T</kbd> path &middot; <kbd>P</kbd> points &middot; <kbd>R</kbd> reset
+  &middot; height band isolates one floor
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+const load=$('#load');
+if(typeof THREE==='undefined'){
+  load.innerHTML='<div id="err"><b>Could not load the 3D library.</b><br>'+
+    'This page pulls three.js from a CDN, so the device viewing it needs internet '+
+    'access once. The Jetson itself does not.</div>';
+  return;
+}
+
+/* ---------------------------------------------------------------- data --- */
+function unb64(s){const b=atob(s),u=new Uint8Array(b.length);
+  for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;}
+const N=__N__, SPAN=__SPAN__;
+const pos=new Float32Array(unb64("__DATA__").buffer);
+const RAWI="__INTEN__";
+const inten=RAWI?unb64(RAWI):null;
+const INV=__INV__;                       // levelled -> raw sensor frame
+const PITCH=__PITCH__, ROLL=__ROLL__, LEVELLED=__LEVELLED__;
+const SENSORZ=__SENSORZ__;               // sensor height above the floor
+
+let zmin=Infinity,zmax=-Infinity,rmax=0,xymax=0;
+for(let i=0;i<N;i++){
+  const x=pos[i*3],y=pos[i*3+1],z=pos[i*3+2];
+  if(z<zmin)zmin=z; if(z>zmax)zmax=z;
+  const r=Math.hypot(x,y,z); if(r>rmax)rmax=r;
+  const q=Math.max(Math.abs(x),Math.abs(y)); if(q>xymax)xymax=q;
+}
+const zrange=Math.max(1e-6,zmax-zmin);
+
+/* attribute channels for each colour mode, packed once */
+const chans=[new Float32Array(N),null,new Float32Array(N),null];
+for(let i=0;i<N;i++){
+  chans[0][i]=(pos[i*3+2]-zmin)/zrange;
+  chans[2][i]=Math.hypot(pos[i*3],pos[i*3+1],pos[i*3+2])/Math.max(1e-6,rmax);
+}
+if(inten){chans[1]=new Float32Array(N);for(let i=0;i<N;i++)chans[1][i]=inten[i]/255;}
+else{$('#bint').disabled=true;$('#bint').style.opacity=.4;}
+
+/* --------------------------------------------------------------- scene --- */
+const BG=0x0a0c10;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(BG);
+/* innerHeight on a phone includes the space under the collapsing URL bar, so
+   sizing from it leaves the bottom of the canvas off screen until the first
+   scroll. documentElement.clientHeight is the laid-out viewport, which is what
+   the page actually occupies. */
+function vp(){
+  return [document.documentElement.clientWidth||innerWidth,
+          document.documentElement.clientHeight||innerHeight];
+}
+let [VW,VH]=vp();
+const cam=new THREE.PerspectiveCamera(55,VW/VH,0.02,SPAN*80);
+cam.up.set(0,0,1);
+const ren=new THREE.WebGLRenderer({canvas:$('#c'),antialias:true});
+ren.setPixelRatio(Math.min(devicePixelRatio,2));
+ren.setSize(VW,VH);
+
+const VERT=`
+attribute float aVal;
+uniform float uSize,uScale,uClipLo,uClipHi;
+varying float vVal; varying float vDepth;
+void main(){
+  vVal=aVal;
+  vec4 mv=modelViewMatrix*vec4(position,1.0);
+  vDepth=-mv.z;
+  gl_Position=projectionMatrix*mv;
+  gl_PointSize=clamp(uSize*uScale/max(0.05,-mv.z),1.0,30.0);
+  // height band: a multi-floor map is unreadable until you can isolate a slab
+  if(position.z>uClipHi||position.z<uClipLo) gl_Position=vec4(2.0,2.0,2.0,1.0);
+}`;
+const FRAG=`
+precision highp float;
+uniform float uFlat; uniform vec3 uFlatCol,uBg; uniform float uFogA,uFogB;
+varying float vVal; varying float vDepth;
+vec3 turbo(float t){
+  const vec3 c0=vec3(0.1140890109226559,0.06288340699912215,0.2248337216805064);
+  const vec3 c1=vec3(6.716419496985708,3.182286745507602,7.571581586103393);
+  const vec3 c2=vec3(-66.09402360453038,-4.9279827041226,-10.09439367561635);
+  const vec3 c3=vec3(228.7660791526501,25.04986699771073,-91.54105330182436);
+  const vec3 c4=vec3(-334.8351565777451,-69.31749712757485,288.5858850615712);
+  const vec3 c5=vec3(218.7637218434795,67.52150567819112,-305.2045772184957);
+  const vec3 c6=vec3(-52.88903478218835,-21.54527364654712,110.5174647748972);
+  return clamp(c0+t*(c1+t*(c2+t*(c3+t*(c4+t*(c5+t*c6))))),0.0,1.0);
+}
+void main(){
+  vec2 d=gl_PointCoord-vec2(0.5);
+  float r2=dot(d,d);
+  if(r2>0.25) discard;
+  vec3 col=mix(turbo(clamp(vVal,0.0,1.0)),uFlatCol,uFlat);
+  col*=1.0-0.5*smoothstep(0.02,0.25,r2);          // round, slightly shaded
+  float f=clamp((vDepth-uFogA)/max(0.001,uFogB-uFogA),0.0,1.0);
+  gl_FragColor=vec4(mix(col,uBg,f*0.7),1.0);
+}`;
+
+const uni={
+  uSize:{value:1},
+  uScale:{value:ren.domElement.height*0.5},
+  uClipLo:{value:-1e9},
+  uClipHi:{value:1e9},
+  uFlat:{value:0},
+  uFlatCol:{value:new THREE.Color(0x9fb4cc)},
+  uBg:{value:new THREE.Color(BG)},
+  uFogA:{value:SPAN*1.2},
+  uFogB:{value:SPAN*6.0}
+};
+const geo=new THREE.BufferGeometry();
+geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+geo.setAttribute('aVal',new THREE.BufferAttribute(chans[0],1));
+const cloud=new THREE.Points(geo,new THREE.ShaderMaterial({
+  vertexShader:VERT,fragmentShader:FRAG,uniforms:uni}));
+const group=new THREE.Group();          // holds the tilt when levelling is off
+group.add(cloud);
+scene.add(group);
+
+const BASE=1/450;                        // world point size at slider 1.0
+uni.uSize.value=SPAN*BASE;
+
+/* ------------------------------------------------------------ the floor --- */
+const xy=Math.max(5,Math.ceil(xymax/5)*5);   // half-width of the metre grid
+const grid=new THREE.Group();
+const minor=new THREE.GridHelper(xy*2,xy*2,0x1e2530,0x1e2530);
+const major=new THREE.GridHelper(xy*2,Math.max(2,(xy*2)/5),0x313b4a,0x313b4a);
+[minor,major].forEach(g=>{g.rotation.x=Math.PI/2;g.material.transparent=true;
+  g.material.opacity=g===minor?0.55:0.9;grid.add(g);});
+const ax=new THREE.AxesHelper(Math.max(0.5,SPAN*0.12));
+ax.material.transparent=true;ax.material.opacity=0.9;
+grid.add(ax);
+scene.add(grid);
+
+/* ------------------------------------------------------------ the sensor --- */
+/* x=y=0 IS the sensor, but an empty origin looks like an arbitrary centre.
+   A body at sensor height, a plumb line and a ring on the floor make the
+   position readable, and give the eye something to judge scale against. */
+const SR=Math.max(0.045,Math.min(0.25,SPAN*0.012));
+const sensor=new THREE.Group();
+const SCOL=0xff6b6b;
+const body=new THREE.Mesh(new THREE.SphereGeometry(SR,20,14),
+  new THREE.MeshBasicMaterial({color:SCOL}));
+body.position.set(0,0,SENSORZ);
+sensor.add(body);
+const halo=new THREE.Mesh(new THREE.SphereGeometry(SR*1.9,16,12),
+  new THREE.MeshBasicMaterial({color:SCOL,transparent:true,opacity:0.18}));
+halo.position.set(0,0,SENSORZ);
+sensor.add(halo);
+const plumb=new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints(
+    [new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,SENSORZ)]),
+  new THREE.LineBasicMaterial({color:SCOL,transparent:true,opacity:0.5}));
+sensor.add(plumb);
+const foot=new THREE.Mesh(new THREE.RingGeometry(SR*2.4,SR*3.0,40),
+  new THREE.MeshBasicMaterial({color:SCOL,transparent:true,opacity:0.65,
+    side:THREE.DoubleSide}));
+sensor.add(foot);
+scene.add(sensor);
+
+/* ------------------------------------------------------------- controls --- */
+const EYE=Math.max(0.05,Math.min(SENSORZ,SPAN*0.9));   // orbit at sensor height
+let dist=SPAN*2.3,yaw=0.75,pitchC=0.48,tx=0,ty=0,tz=EYE;
+let tDist=dist,tYaw=yaw,tPitch=pitchC,ttx=tx,tty=ty,ttz=tz;
+const clampP=v=>Math.max(-1.553,Math.min(1.553,v));
+
+function apply(){
+  const cp=Math.cos(pitchC);
+  cam.position.set(tx+dist*cp*Math.sin(yaw),ty+dist*cp*Math.cos(yaw),tz+dist*Math.sin(pitchC));
+  cam.up.set(0,0,1);
+  cam.lookAt(tx,ty,tz);
+  uni.uFogA.value=dist*0.9; uni.uFogB.value=dist*4.0;
+  scaleBar();
+}
+function goto(y,p,d,z){tYaw=y;tPitch=clampP(p);if(d)tDist=d;if(z!==undefined)ttz=z;}
+
+const views={
+  iso:()=>goto(0.75,0.48,SPAN*2.3,EYE),
+  top:()=>goto(0,1.5525,SPAN*2.0,0),
+  front:()=>goto(0,0.02,SPAN*2.2,EYE),
+  side:()=>goto(Math.PI/2,0.02,SPAN*2.2,EYE)
+};
+
+const cv=ren.domElement;
+let drag=null,px=0,py=0;
+cv.addEventListener('pointerdown',e=>{drag=e.button;px=e.clientX;py=e.clientY;
+  cv.setPointerCapture(e.pointerId);cv.classList.add('dragging');});
+cv.addEventListener('pointerup',e=>{drag=null;cv.classList.remove('dragging');
+  try{cv.releasePointerCapture(e.pointerId)}catch(_){}});
+/* Pan in the camera's own plane: right = (-cos y, sin y, 0),
+   up = (-sin y sin p, -cos y sin p, cos p). Dragging moves the scene with the
+   pointer, so the orbit target moves the other way for x and with it for y. */
+function pan(dx,dy){
+  const s=tDist*0.0016, sp=Math.sin(tPitch), cp=Math.cos(tPitch);
+  const sy=Math.sin(tYaw), cy=Math.cos(tYaw);
+  ttx+= cy*dx*s + (-sy*sp)*dy*s;
+  tty+=-sy*dx*s + (-cy*sp)*dy*s;
+  ttz+= cp*dy*s;
+}
+cv.addEventListener('pointermove',e=>{
+  if(drag===null)return;
+  const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+  if(drag===0&&!e.shiftKey){tYaw-=dx*0.006;tPitch=clampP(tPitch+dy*0.006);}
+  else pan(dx,dy);
+});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('wheel',e=>{
+  tDist=Math.max(SPAN*0.02,Math.min(SPAN*30,tDist*Math.exp(e.deltaY*0.0012)));
+  e.preventDefault();},{passive:false});
+
+/* touch: one finger orbit, two fingers pinch + pan */
+let pd=0,pcx=0,pcy=0;
+cv.addEventListener('touchstart',e=>{
+  if(e.touches.length===2){
+    pd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                  e.touches[0].clientY-e.touches[1].clientY);
+    pcx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    pcy=(e.touches[0].clientY+e.touches[1].clientY)/2;
+  }},{passive:true});
+cv.addEventListener('touchmove',e=>{
+  if(e.touches.length===2){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                       e.touches[0].clientY-e.touches[1].clientY);
+    const cx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    const cy=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    if(pd)tDist=Math.max(SPAN*0.02,Math.min(SPAN*30,tDist*pd/d));
+    pan(cx-pcx,cy-pcy);
+    pd=d;pcx=cx;pcy=cy;
+    e.preventDefault();
+  }},{passive:false});
+cv.addEventListener('touchend',()=>{pd=0;},{passive:true});
+
+/* -------------------------------------------------------------- the UI --- */
+const rampCv=$('#ramp'),rctx=rampCv.getContext('2d');
+function turboJS(t){
+  const c=[[0.1140890109226559,0.06288340699912215,0.2248337216805064],
+    [6.716419496985708,3.182286745507602,7.571581586103393],
+    [-66.09402360453038,-4.9279827041226,-10.09439367561635],
+    [228.7660791526501,25.04986699771073,-91.54105330182436],
+    [-334.8351565777451,-69.31749712757485,288.5858850615712],
+    [218.7637218434795,67.52150567819112,-305.2045772184957],
+    [-52.88903478218835,-21.54527364654712,110.5174647748972]];
+  return c[0].map((_,k)=>{let v=0;for(let j=6;j>=0;j--)v=v*t+c[j][k];
+    return Math.round(255*Math.max(0,Math.min(1,v)));});
+}
+(function drawRamp(){
+  for(let x=0;x<256;x++){const c=turboJS(x/255);
+    rctx.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`;rctx.fillRect(x,0,1,9);}
+})();
+
+let mode=0;
+const caps=['height above floor','return intensity','range from sensor',''];
+function setMode(m){
+  mode=m;
+  uni.uFlat.value=(m===3)?1:0;
+  if(m!==3&&chans[m]){geo.setAttribute('aVal',new THREE.BufferAttribute(chans[m],1));}
+  document.querySelectorAll('#cmode button').forEach(b=>
+    b.classList.toggle('on',+b.dataset.mode===m));
+  const leg=$('#legend');
+  leg.style.display=(m===3)?'none':'';
+  $('#lcap').textContent=caps[m];
+  if(m===0){$('#l0').textContent=zmin.toFixed(1)+' m';$('#l1').textContent=zmax.toFixed(1)+' m';}
+  if(m===1){$('#l0').textContent='low';$('#l1').textContent='high';}
+  if(m===2){$('#l0').textContent='0 m';$('#l1').textContent=rmax.toFixed(1)+' m';}
+}
+document.querySelectorAll('#cmode button').forEach(b=>
+  b.onclick=()=>{if(!b.disabled)setMode(+b.dataset.mode);});
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-view]').forEach(o=>o.classList.remove('on'));
+  b.classList.add('on'); views[b.dataset.view]();});
+
+$('#size').oninput=e=>{const v=+e.target.value;
+  uni.uSize.value=SPAN*BASE*v; $('#psz').textContent=v.toFixed(1)+'×';};
+
+/* Either slider may be the upper one - order them rather than letting the band
+   invert and blank the whole cloud. */
+function setBand(){
+  const a=+$('#cliplo').value, b=+$('#cliphi').value;
+  const lo=Math.min(a,b), hi=Math.max(a,b);
+  const zl=zmin+zrange*lo/100, zh=zmin+zrange*hi/100;
+  uni.uClipLo.value=(lo<=0)?-1e9:zl;
+  uni.uClipHi.value=(hi>=100)?1e9:zh;
+  $('#clipv').textContent =
+    (lo<=0&&hi>=100)?'all':
+    (lo<=0)?('below '+zh.toFixed(1)+' m'):
+    (hi>=100)?('above '+zl.toFixed(1)+' m'):
+    (zl.toFixed(1)+' to '+zh.toFixed(1)+' m');
+  showPlans();
+}
+$('#cliplo').oninput=setBand;
+$('#cliphi').oninput=setBand;
+
+/* levelling toggle: slerp the cloud back into the tilted sensor frame */
+const qLevel=new THREE.Quaternion();
+const mInv=new THREE.Matrix4().set(INV[0],INV[3],INV[6],0, INV[1],INV[4],INV[7],0,
+                                   INV[2],INV[5],INV[8],0, 0,0,0,1);
+const qRaw=new THREE.Quaternion().setFromRotationMatrix(mInv);
+let levelOn=true,qMix=0;
+const bl=$('#blevel');
+if(!LEVELLED){bl.disabled=true;bl.style.opacity=.4;
+  $('#lvltag').classList.add('off');$('#lvltxt').textContent='raw sensor frame';}
+else{$('#lvltxt').textContent='levelled '+PITCH.toFixed(1)+'°';}
+bl.onclick=()=>{if(bl.disabled)return;levelOn=!levelOn;
+  bl.classList.toggle('on',levelOn);
+  bl.textContent=levelOn?'Level':'Raw';
+  $('#lvltag').classList.toggle('off',!levelOn);
+  $('#lvltxt').textContent=levelOn?('levelled '+PITCH.toFixed(1)+'°')
+                                  :('raw – tilted '+PITCH.toFixed(1)+'°');};
+
+let gridOn=true;
+$('#bgrid').onclick=()=>{gridOn=!gridOn;grid.visible=gridOn;
+  $('#bgrid').classList.toggle('on',gridOn);};
+
+let senOn=true;
+$('#bsensor').onclick=()=>{senOn=!senOn;sensor.visible=senOn;
+  $('#bsensor').classList.toggle('on',senOn);};
+
+/* wall plans, one per storey, each lying on its own floor. The height band
+   hides plans whose floor is outside it, so isolating a storey shows its plan. */
+const WALLS=__WALLS__;                  // [png, x, y, w, h, floor z]
+let wallsOn=WALLS.length>0;
+const plans=WALLS.map(([png,wx,wy,ww,wh,wz])=>{
+  const tex=new THREE.TextureLoader().load('data:image/png;base64,'+png);
+  tex.magFilter=THREE.NearestFilter;
+  const plan=new THREE.Mesh(new THREE.PlaneGeometry(ww,wh),
+    new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false,
+      side:THREE.DoubleSide}));
+  plan.position.set(wx+ww/2,wy+wh/2,wz+0.02);
+  group.add(plan);
+  return plan;});
+function showPlans(){plans.forEach(p=>p.visible=wallsOn&&
+  p.position.z>=uni.uClipLo.value-0.5&&p.position.z<=uni.uClipHi.value);}
+if(plans.length){
+  $('#bwalls').onclick=()=>{wallsOn=!wallsOn;showPlans();
+    $('#bwalls').classList.toggle('on',wallsOn);};
+}else{$('#bwalls').disabled=true;$('#bwalls').classList.remove('on');
+  $('#bwalls').style.opacity=.4;}
+
+/* the path the sensor walked: a line drawn over the points (no depth test,
+   so walls never hide it), green dot at the start, red at the end */
+const PATH=__PATH__;                    // flat [x,y,z, x,y,z, ...]
+let pathOn=PATH.length>=6;
+const pathG=new THREE.Group();
+if(pathOn){
+  const pg=new THREE.BufferGeometry();
+  pg.setAttribute('position',new THREE.Float32BufferAttribute(PATH,3));
+  const line=new THREE.Line(pg,new THREE.LineBasicMaterial(
+    {color:0xff9f43,transparent:true,opacity:.95,depthTest:false}));
+  line.renderOrder=3; pathG.add(line);
+  const dot=(i,col)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.12,14,10),
+    new THREE.MeshBasicMaterial({color:col,depthTest:false}));
+    m.position.set(PATH[i],PATH[i+1],PATH[i+2]);m.renderOrder=4;pathG.add(m);};
+  dot(0,0x5fd08a); dot(PATH.length-3,0xff6b6b);
+  group.add(pathG);
+  $('#bpath').onclick=()=>{pathOn=!pathOn;pathG.visible=pathOn;
+    $('#bpath').classList.toggle('on',pathOn);};
+}else{$('#bpath').disabled=true;$('#bpath').classList.remove('on');
+  $('#bpath').style.opacity=.4;}
+
+let ptsOn=true;
+$('#bpoints').onclick=()=>{ptsOn=!ptsOn;cloud.visible=ptsOn;
+  $('#bpoints').classList.toggle('on',ptsOn);};
+
+$('#toggle').onclick=()=>{$('#ctl').classList.toggle('open');
+  $('#info').classList.toggle('open');};
+
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  const v={'1':'iso','2':'top','3':'front','4':'side'}[k];
+  if(v){views[v]();document.querySelectorAll('[data-view]').forEach(o=>
+    o.classList.toggle('on',o.dataset.view===v));}
+  else if(k==='l')bl.click();
+  else if(k==='g')$('#bgrid').click();
+  else if(k==='s')$('#bsensor').click();
+  else if(k==='w')$('#bwalls').click();
+  else if(k==='t')$('#bpath').click();
+  else if(k==='p')$('#bpoints').click();
+  else if(k==='r'){views.iso();ttx=tty=0;
+    document.querySelectorAll('[data-view]').forEach(o=>
+      o.classList.toggle('on',o.dataset.view==='iso'));}
+  else if(k==='[')$('#size').value=Math.max(0.3,+$('#size').value-0.2),$('#size').oninput({target:$('#size')});
+  else if(k===']')$('#size').value=Math.min(4,+$('#size').value+0.2),$('#size').oninput({target:$('#size')});
+});
+
+function scaleBar(){
+  const h=ren.domElement.clientHeight||innerHeight;
+  const wpp=2*dist*Math.tan(cam.fov*Math.PI/360)/h;     // metres per css pixel
+  let best=1,bestPx=0;
+  for(const m of [0.1,0.2,0.5,1,2,5,10,20,50,100,200,500]){
+    const px=m/wpp; if(px>=55&&px<=170){best=m;bestPx=px;break;}
+    if(px<55)best=m,bestPx=px;
+  }
+  $('#sbar').style.width=Math.max(20,Math.min(200,bestPx)).toFixed(0)+'px';
+  $('#slen').textContent=best<1?(best*100).toFixed(0)+' cm':best+' m';
+}
+
+function resize(){
+  [VW,VH]=vp();
+  cam.aspect=VW/VH;cam.updateProjectionMatrix();
+  ren.setSize(VW,VH);
+  uni.uScale.value=ren.domElement.height*0.5;
+  scaleBar();
+}
+addEventListener('resize',resize);
+/* Safari reports the old size during the rotation, so measure again after. */
+addEventListener('orientationchange',()=>setTimeout(resize,250));
+if(window.visualViewport)visualViewport.addEventListener('resize',resize);
+
+/* ---------------------------------------------------------------- loop --- */
+const L=0.16;
+function frame(){
+  requestAnimationFrame(frame);
+  yaw+=(tYaw-yaw)*L; pitchC+=(tPitch-pitchC)*L; dist+=(tDist-dist)*L;
+  tx+=(ttx-tx)*L; ty+=(tty-ty)*L; tz+=(ttz-tz)*L;
+  const want=levelOn?0:1;
+  if(Math.abs(qMix-want)>1e-4){qMix+=(want-qMix)*L;
+    group.quaternion.copy(qLevel).slerp(qRaw,qMix);
+    /* The sensor drawing lives in the levelled frame, so it has to swing with
+       the cloud - otherwise it floats off the points it was measured from. */
+    sensor.quaternion.copy(group.quaternion);}
+  apply();
+  ren.render(scene,cam);
+}
+setMode(0);
+views.iso();
+apply();
+frame();
+requestAnimationFrame(()=>{load.classList.add('gone');
+  setTimeout(()=>load.remove(),450);});
+})();
+</script></body></html>

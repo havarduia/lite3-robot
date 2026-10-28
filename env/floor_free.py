@@ -15,24 +15,19 @@ space. Walls stay walls; low furniture is left to the costmap, as before.
 every wall stands on the floor, so nearly every wall cell has floor-height
 points, docs/history/LIDAR_ORIN_LOG.md section 25.)
 """
+import os
 import re
 import sys
 
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from robot.cloudreg import read_ply  # noqa: E402
+
 LIDAR_ABOVE_FLOOR = 0.46    # m, the path is the lidar's; map_walls.py uses the same
 FLOOR_BAND = 0.12           # m either side of the local floor: still floor (FAST-LIO's cloud is 10 cm)
 PINHOLE = 5                 # cells: unknown inside free space that a square this wide closes over
 WALL, FREE, UNKNOWN = 0, 254, 205
-
-
-def read_ply(path):
-    """Nx3 points from map_walls' binary ply (x y z intensity, float32)."""
-    raw = open(path, 'rb').read()
-    head = raw.index(b'end_header\n') + len(b'end_header\n')
-    n = int(re.search(rb'element vertex (\d+)', raw[:head]).group(1))
-    fields = len(re.findall(rb'property float', raw[:head]))
-    return np.frombuffer(raw[head:head + n * 4 * fields], dtype='<f4').reshape(n, fields)[:, :3].astype(float)
 
 
 def floor_seen(shape, x0, y0, res, pts, path):

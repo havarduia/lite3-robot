@@ -1,0 +1,61 @@
+# FAST-LIO2 for the lite3 rig: Livox MID-360s via livox_ros_driver2 with
+# xfer_format 0 (PointCloud2, per-point absolute timestamps), its built-in IMU.
+# Started by lio_live.py; see there for what reads the outputs.
+#
+# Differences from FAST_LIO's own config/mid360.yaml:
+#   lidar_type 4      the MID360 PointCloud2 handler, patched in
+#                     ~/livox_ws/src/FAST_LIO/src/preprocess.cpp to use the
+#                     driver's per-point timestamps (upstream guessed them from
+#                     yaw, as for a spinning LiDAR - wrong for the MID-360)
+#   extrinsic_est_en  false: the MID-360 LiDAR->IMU offset is fixed and known;
+#                     estimating it online on a trotting robot only adds drift
+#   dense_publish_en  true: lio_live builds the map from /cloud_registered
+#   map_en, pcd_save  off: both grow without bound over a long walk
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 3          # keep every 3rd point: ~6.7k of 20k per scan
+        max_iteration: 3
+        filter_size_surf: 0.3        # m, scan downsampling for registration
+        filter_size_map: 0.3         # m, map downsampling (indoor: 0.5 erases door frames)
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic: "/livox/lidar"
+            imu_topic: "/livox/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            lidar_type: 4            # MID360 PointCloud2 (enum: 1 avia, 2 velo, 3 ouster, 4 mid360)
+            scan_line: 4
+            blind: 0.5               # m: the robot's own body
+            timestamp_unit: 3
+            scan_rate: 10
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree: 360.0
+            det_range: 40.0
+            extrinsic_est_en: false
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1., 0., 0.,
+                           0., 1., 0.,
+                           0., 0., 1. ]
+
+        publish:
+            path_en: false
+            effect_map_en: false
+            map_en: false
+            scan_publish_en: true
+            dense_publish_en: true
+            scan_bodyframe_pub_en: false
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1

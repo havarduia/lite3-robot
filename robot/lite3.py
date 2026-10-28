@@ -29,6 +29,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry       # noqa: E402
 from rclpy.executors import (ShutdownException,        # noqa: E402
                              SingleThreadedExecutor, TimeoutException)
 from rclpy.node import Node                            # noqa: E402
+from rclpy.serialization import deserialize_message  # noqa: E402
 from rclpy.qos import (DurabilityPolicy, QoSProfile,   # noqa: E402
                        ReliabilityPolicy)
 from sensor_msgs.msg import Imu, PointCloud2           # noqa: E402
@@ -61,9 +62,6 @@ STANDING = 6
 LYING = (1, 8, 98)
 # Settled and commandable. 9 is transitional (8 -> 9 -> 1), so it is not here.
 READY_STATES = (1, 6, 98)
-# Settled but not armed: jy_exe eats the first command arming itself, so
-# stand() sends its toggle again.
-UNARMED = (8, 98)
 # Seconds before "still lying" means the toggle was swallowed. Too short
 # sends a second toggle at a robot that IS standing up, which lies him down.
 ARM_GRACE = 2.0
@@ -116,6 +114,14 @@ def _set_sigint(handler):
 
 
 class _Node(Node):
+    @property
+    def grid(self):
+        """Nav2's global costmap, decoded from the newest bytes the first time it is asked for."""
+        raw = self._grid_raw
+        if raw is not None and self._grid[0] is not raw:
+            self._grid = (raw, deserialize_message(raw, OccupancyGrid))
+        return self._grid[1]
+
     def __init__(self):
         super().__init__('lite3_api')
         best = QoSProfile(depth=1)
@@ -129,7 +135,7 @@ class _Node(Node):
         self.odom = None
         self.odom_time = 0.0        # time.time() of the newest odometry
         self.cloud = None
-        self.grid = None
+        self._grid_raw, self._grid = None, (None, None)
         self.local_grid = None      # Nav2's local costmap: a turn on the spot checks it (nav.turn_blocked)
         # Map mode: what robot/locate.py last said, when, and the odometry of that moment.
         self.loc, self.loc_time, self.loc_odom = None, 0.0, None
@@ -143,8 +149,10 @@ class _Node(Node):
         self.cloud_node = Node('lite3_api_cloud')
         self.cloud_node.create_subscription(PointCloud2, '/camera/depth/color/points',
                                             lambda m: setattr(self, 'cloud', m), best)
+        # Kept as bytes, decoded on use (grid): a floor like the arcade's takes 0.43 s to
+        # decode on the Xavier, every 2 s, on the thread that also reads /localized.
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap',
-                                 lambda m: setattr(self, 'grid', m), latched)
+                                 lambda b: setattr(self, '_grid_raw', b), latched, raw=True)
         self.create_subscription(OccupancyGrid, '/local_costmap/costmap',
                                  lambda m: setattr(self, 'local_grid', m), latched)
         # The rear one bottoms out at 0.28 m, which lying down also means "no echo":

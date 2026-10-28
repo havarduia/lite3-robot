@@ -13,7 +13,7 @@ import time
 
 from . import locate
 from . import places as place_file
-from .lio_relay import inv, join
+from .lio_relay import inv, join, wrap
 from .protocol import Lite3Error
 
 # --- nav2 ---
@@ -34,7 +34,9 @@ LOC_STALE_S = 3.0       # locate.py speaks twice a second; quiet this long, he d
                         # goals in a row ended "couldn't get there" (2026-10-15, cause not proven)
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
 FIT_POSE_STD = (0.1, 0.1)   # and one checked against the walls (demos/check_map.py's best fit)
-ROUTE_TIMEOUT = 300.0   # s for one go_to(): 30 m takes about two minutes
+ROUTE_TIMEOUT = 300.0   # s for one go_to() at least: 30 m takes about two minutes
+ROUTE_SLOWEST = 0.2     # m/s: longer routes get their length at this speed (135 m took over 300 s, 2026-10-15).
+                        # A last resort only: Nav2's progress checker catches him stuck within 10 s.
 THERE_M = 0.2           # nearer than this the planner makes no path, and he is there anyway
 SHORT_M = 0.6           # "succeeded" further than this from the point is not believed (it stops 0.1 to 0.2 m off)
 CLEAR_SETTLE_S = 2.5    # the global costmap is redrawn once a second; the map and a fresh scan are back by then
@@ -62,11 +64,6 @@ def clamp(v, limit):
 def dist(a, b):
     """Metres between two poses."""
     return math.hypot(b[0] - a[0], b[1] - a[1])
-
-
-def wrap(angle):
-    """An angle in radians brought into -pi..pi."""
-    return math.atan2(math.sin(angle), math.cos(angle))
 
 
 # A turn on the spot checks his body against the costmap first. His footprint
@@ -614,7 +611,8 @@ class Nav:
                 if why:
                     raise Lite3Error('lost on the way, stopped: ' + why)
             gyaw = math.atan2(y - here[1], x - here[0]) if yaw_deg is None else math.radians(yaw_deg)
-            end = time.time() + timeout
+            length = sum(dist(a, b) for a, b in zip(route, route[1:]))
+            end = time.time() + max(timeout, length / ROUTE_SLOWEST)
             for again in (True, False):
                 status = self._goal_wait(self.goal_send(x, y, gyaw, frame='map'), max(0.0, end - time.time()),
                                          lost=self.lost_why)

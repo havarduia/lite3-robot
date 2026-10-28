@@ -11,7 +11,7 @@ the robot on 2026-10-23. Secrets are not written here, only where they are.
 | Perception (Jetson Xavier NX, Ubuntu 20.04, ROS2 Foxy) | 192.168.1.103 | `lite3-perception` | `ysc` | this repository in `~/robot`; services `hmi`, `lio_relay`, `realsense_ros2`, `transfer_ros2`, `roam-rebind` |
 | Motion (RK3588, vendor) | 192.168.1.120; 192.168.2.1 on the robot's wifi | `lite3-motion` | `ysc` | the vendor controller `jy_exe`, `track` (the vendor's person detector, not used), `rtsp_stream` (front camera), `robot-nat`, the wifi access point (`~/wifi_mode.sh`) |
 | Orin Nano (Ubuntu, ROS 2 Humble) | 192.168.1.5 | Tailscale IP 100.114.74.5 (hostname `ubuntu`) | `lite3` | the lidar and mapping: `livox-driver`, `lidar-web` (panel on :8000), `lidar-scan`, `lio-send`, `cloud-locate`, `eduroam-watchdog`, `orin-nat` |
-| Livox MID-360 lidar | 192.168.1.102 | | | |
+| Livox MID-360S lidar | 192.168.1.102 | | | |
 
 The robot's wifi is `YSC-JYML-pr3gdi-5G`. A laptop on it gets a
 192.168.2.x address and reaches the motion computer at 192.168.2.1.
@@ -53,10 +53,11 @@ robot.
 
 ## Code that is not in this repository
 
-- **The Orin's `~/bin`** (52 files) holds the lidar web panel
+- **The Orin's `~/bin`** (30 files) holds the lidar web panel
   (`lidar_web.py`, `map_web.py`), the map slicer (`map_walls.py`), the
-  FAST-LIO2 and KISS-ICP scripts and their configs. It is **not under git**.
-  Its own notes are `~/bin/README.md` there; the hostname that README
+  FAST-LIO2 and KISS-ICP scripts and their configs. The Orin runs it from
+  there, outside git; `orin/bin/` here is a snapshot of it (2026-10-28):
+  copy changes made on the Orin back into it. Its own notes are `~/bin/README.md` there; the hostname that README
   gives (`jetson-lite3`) is out of date. Three files
   are copies of this repository's: `lio_relay.py`, `cloud_locate.py` and
   `cloudreg.py`. Copy them over again after you change them here.

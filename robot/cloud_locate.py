@@ -15,7 +15,6 @@ pose, from "I am here"). .planning/plans/cloud-localization.md, phase 1.
 import math
 import os
 import socket
-import struct
 import sys
 import threading
 import time

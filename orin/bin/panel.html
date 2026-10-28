@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MID360 &middot; control</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0a0c10; --panel:#12151b; --line:#262b34; --text:#e7e9ee; --dim:#9298a3;
+  --accent:#6aa9ff; --good:#5fd08a; --warn:#ffb74d; --bad:#ff6b6b; --r:12px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;
+  padding:max(16px,env(safe-area-inset-top)) 16px
+          calc(24px + env(safe-area-inset-bottom))}
+.wrap{max-width:620px;margin:0 auto;display:grid;gap:16px}
+header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+header .sub{color:var(--dim);font-size:12px}
+nav{display:flex;gap:6px}
+nav a{flex:1;text-align:center;padding:9px;border-radius:9px;text-decoration:none;
+  color:var(--dim);background:var(--panel);border:1px solid var(--line);font-size:13px}
+nav a.on{color:var(--accent);border-color:rgba(106,169,255,.5);
+  background:rgba(106,169,255,.14)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px;display:grid;gap:13px}
+.card h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim)}
+.card p{margin:0;color:var(--dim);font-size:12.5px}
+.lbl{display:flex;justify-content:space-between;color:var(--dim);font-size:12px}
+.lbl b{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;height:22px;-webkit-appearance:none;appearance:none;
+  background:transparent;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#2b313b}
+input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:#2b313b}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;
+  margin-top:-9px;border-radius:50%;background:var(--accent);border:0}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:50%;
+  background:var(--accent)}
+input[type=text]{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
+  color:var(--text);background:#191d24;border:1px solid var(--line)}
+button{font:inherit;font-weight:500;color:var(--text);background:#191d24;
+  border:1px solid var(--line);border-radius:10px;padding:14px 16px;cursor:pointer;
+  min-height:48px;transition:background .12s,border-color .12s,opacity .12s}
+button:hover:enabled{background:#222833;border-color:#39414e}
+button:disabled{opacity:.42;cursor:default}
+button.go{background:rgba(106,169,255,.16);border-color:rgba(106,169,255,.55);
+  color:var(--accent)}
+button.stop{background:rgba(255,107,107,.16);border-color:rgba(255,107,107,.55);
+  color:var(--bad)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+  font-size:11px;font-weight:500;background:rgba(146,152,163,.14);color:var(--dim);
+  border:1px solid var(--line)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.run{background:rgba(106,169,255,.14);color:var(--accent);
+  border-color:rgba(106,169,255,.3)}
+.pill.rec{background:rgba(255,107,107,.14);color:var(--bad);
+  border-color:rgba(255,107,107,.3);animation:pulse 1.4s ease-in-out infinite}
+.pill.ok{background:rgba(95,208,138,.14);color:var(--good);
+  border-color:rgba(95,208,138,.3)}
+.pill.err{background:rgba(255,183,77,.14);color:var(--warn);
+  border-color:rgba(255,183,77,.3)}
+@keyframes pulse{50%{opacity:.45}}
+#bar{height:4px;border-radius:2px;background:#2b313b;overflow:hidden;display:none}
+#bar i{display:block;height:100%;width:0;background:var(--accent);
+  transition:width .9s linear}
+#bar.on{display:block}
+#bar.wait i{width:34%;animation:slide 1.4s ease-in-out infinite}
+@keyframes slide{0%{margin-left:-34%}100%{margin-left:100%}}
+pre{margin:0;max-height:210px;overflow:auto;background:#0d1015;border:1px solid var(--line);
+  border-radius:9px;padding:11px;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--dim);white-space:pre-wrap;word-break:break-word;overscroll-behavior:contain}
+ul{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+li a{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+  padding:11px 12px;border-radius:9px;text-decoration:none;color:var(--text);
+  background:#191d24;border:1px solid var(--line);font-size:13px}
+li a:hover{border-color:#39414e}
+li a span{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+li a b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ov{position:fixed;inset:0;z-index:30;background:var(--bg);display:none}
+#ov.on{display:block}
+#ov iframe{width:100%;height:100%;border:0;display:block}
+#ov button{position:fixed;top:max(12px,env(safe-area-inset-top));left:12px;z-index:31;
+  min-height:0;padding:9px 13px;font-size:12px;background:rgba(18,21,27,.86);
+  backdrop-filter:blur(12px)}
+[data-tab]{display:none}
+body[data-on="scan"] [data-tab="scan"],
+body[data-on="record"] [data-tab="record"],
+body[data-on="nav"] [data-tab="nav"],
+body[data-on="live"] [data-tab="live"]{display:grid}
+button.on{border-color:rgba(106,169,255,.6);background:rgba(106,169,255,.14);color:var(--accent)}
+.thtog{margin-left:auto;min-height:0;padding:6px 12px;font-size:12px;border-radius:999px}
+.thwrap{display:flex;justify-content:center;background:#0d1015;border-radius:8px;padding:8px}
+#thimg{width:min(100%,300px);aspect-ratio:3/4;object-fit:contain;border-radius:6px;background:#000;
+  cursor:zoom-in}
+/* tap the picture: full screen (an overlay where the browser has no fullscreen for images, iOS) */
+.thwrap.full{position:fixed;inset:0;z-index:50;background:#000;border-radius:0;padding:0;
+  align-items:center}
+.thwrap.full #thimg{width:100vw;height:100vh;max-width:none;aspect-ratio:auto;border-radius:0;
+  cursor:zoom-out}
+.thwrap .thclose{display:none}
+.thwrap.full .thclose{display:block;position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;
+  z-index:51;color:#fff;font-size:12px;background:rgba(0,0,0,.5);padding:6px 10px;border-radius:8px;
+  pointer-events:none}
+#thermal[hidden]{display:none}
+select{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
+  color:var(--text);background:#191d24;border:1px solid var(--line)}
+#lcv{width:100%;display:block;border-radius:8px;background:#0d1015;height:min(70vh,520px)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stats div{background:#191d24;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+.stats span{display:block;color:var(--dim);font-size:11px}
+.stats b{font-weight:500;font-variant-numeric:tabular-nums}
+#ncv{width:100%;display:block;border-radius:8px;background:#191d24;touch-action:none;
+  cursor:crosshair}
+@media (min-width:560px){.two{grid-template-columns:1fr 1fr}}
+.two{display:grid;gap:10px}
+</style></head><body data-on="__TAB__">
+<div class="wrap">
+  <header>
+    <h1>MID360</h1>
+    <span class="sub" id="pill-wrap"><span class="pill" id="pill">
+      <span class="dot"></span><span id="pilltxt">idle</span></span></span>
+    <button id="bthermal" class="thtog" title="show / hide the thermal camera">Thermal</button>
+  </header>
+
+  <div class="card" id="thermal" hidden>
+    <h2>Thermal camera</h2>
+    <div class="thwrap" id="thwrap"><img id="thimg" alt="thermal camera"
+      title="tap for full screen"><span class="thclose">tap to close</span></div>
+    <div class="lbl"><span id="thstat">connecting&hellip;</span>
+      <b>relative heat &middot; not &deg;C</b></div>
+  </div>
+
+  <nav>
+    <a href="/" id="nav-scan">Scan</a>
+    <a href="/record" id="nav-record">Record &amp; map</a>
+    <a href="/live" id="nav-live">Live</a>
+    <a href="/nav" id="nav-nav">Navigate</a>
+  </nav>
+
+  <div class="card" data-tab="scan">
+    <h2>Static scan</h2>
+    <p>Keep the sensor still. The non-repetitive pattern keeps revealing new
+       geometry, so longer means denser. No SLAM, no trajectory.</p>
+    <div>
+      <div class="lbl"><span>Duration</span><b id="secv">30 s</b></div>
+      <input type="range" id="secs" min="5" max="120" step="5" value="30">
+    </div>
+    <div>
+      <div class="lbl"><span>Voxel</span><b id="voxv">2 cm</b></div>
+      <input type="range" id="vox" min="0.5" max="10" step="0.5" value="2">
+    </div>
+    <button class="go" id="bscan">Take point cloud</button>
+  </div>
+
+  <div class="card" data-tab="record">
+    <h2>Record &amp; map</h2>
+    <p>Records the cloud and the IMU while you walk; on stop, FAST-LIO2 replays
+       it into a map (takes as long as the walk). Walk a loop that returns to
+       the start: the gap between start and end shows the drift. Roughly
+       0.3 GB per minute. Can run alongside Live.</p>
+    <input type="text" id="rname" value="walk" placeholder="name"
+           autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="two">
+      <button class="go" id="brec">Record</button>
+      <button class="stop" id="bstop" disabled>Stop &amp; map</button>
+    </div>
+  </div>
+
+  <div class="card" data-tab="live">
+    <h2>Live SLAM</h2>
+    <p>Maps and localises as the robot walks; the map, the path and the
+       robot's position refresh every 0.2 s. Start with the robot standing
+       still (the first second levels the map by gravity). Stop saves the map
+       to the library and to Navigate's floor maps.</p>
+    <input type="text" id="lname" value="live" placeholder="name this run"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           title="Saved as <name>_<date>_<time>. Letters, digits, - and _.">
+    <div class="two">
+      <button class="go" id="blstart">Start live SLAM</button>
+      <button class="stop" id="blstop" disabled>Stop &amp; save</button>
+    </div>
+    <label class="lbl" style="justify-content:flex-start;gap:8px;cursor:pointer">
+      <input type="checkbox" id="lone"> <span>One floor: on save, remove height
+      drift and draw one wall plan. Leave off if the walk changes floors.</span></label>
+    <canvas id="lcv"></canvas>
+    <div class="stats">
+      <div><span>position</span><b id="lpos">&mdash;</b></div>
+      <div><span>heading</span><b id="lyaw">&mdash;</b></div>
+      <div><span>walked</span><b id="ldist">&mdash;</b></div>
+      <div><span>rate</span><b id="lhz">&mdash;</b></div>
+      <div><span>behind / dropped</span><b id="llag">&mdash;</b></div>
+      <div><span>SLAM</span><b id="lcl">&mdash;</b></div>
+    </div>
+    <div class="lbl"><span id="lstat">&mdash;</span><b id="lage"></b></div>
+  </div>
+
+  <div class="card" data-tab="nav">
+    <h2>Navigate</h2>
+    <p>Nav2 runs on the robot PC. Send it a floor map, then on the map: set
+       where the robot is (tap; drag to give its heading), set a goal the same
+       way, plan the path, go.</p>
+    <select id="nmap"></select>
+    <button class="go" id="bnsend">Send map to robot</button>
+    <div class="two">
+      <button data-nmode="pose" class="on">Set robot pose</button>
+      <button data-nmode="goal">Set goal</button>
+    </div>
+    <canvas id="ncv"></canvas>
+    <div class="lbl"><span id="nstat">&mdash;</span><b id="nmsg"></b></div>
+    <div class="two">
+      <button id="bnplan">Plan path</button>
+      <button class="go" id="bngo">Go</button>
+    </div>
+    <button class="stop" id="bnstop">Stop robot</button>
+  </div>
+
+  <div class="card">
+    <h2>Progress</h2>
+    <div class="lbl"><span id="step">nothing running</span><b id="clock">&mdash;</b></div>
+    <div id="bar"><i></i></div>
+    <button class="go" id="bview" style="display:none">Open the map</button>
+    <button class="stop" id="bcancel" style="display:none">Cancel</button>
+    <pre id="log">ready</pre>
+  </div>
+
+  <div class="card">
+    <h2>Library</h2>
+    <ul id="lib"><li><a><b>loading&hellip;</b></a></li></ul>
+  </div>
+</div>
+
+<div id="ov"><button id="bclose">&larr; back</button><iframe id="fr"></iframe></div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const TAB=document.body.dataset.on;
+$('nav-'+TAB).classList.add('on');
+
+function mmss(s){s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+
+/* ---- sliders ---- */
+$('secs').oninput=e=>$('secv').textContent=e.target.value+' s';
+$('vox').oninput=e=>$('voxv').textContent=(+e.target.value)+' cm';
+
+/* ---- actions ---- */
+async function post(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){$('log').textContent=j.error||('HTTP '+r.status);}
+  return j;
+}
+$('bscan').onclick=()=>{
+  $('bscan').disabled=true;
+  post('/api/scan',{seconds:+$('secs').value,voxel:+$('vox').value/100}).then(tick);
+};
+$('brec').onclick=()=>{
+  $('brec').disabled=true;
+  post('/api/record/start',{name:$('rname').value}).then(tick);
+};
+$('bstop').onclick=()=>{
+  $('bstop').disabled=true;
+  post('/api/record/stop').then(tick);
+};
+
+$('bcancel').onclick=()=>{
+  $('bcancel').disabled=true;
+  post('/api/cancel').then(tick);
+};
+
+/* ---- navigate ---- */
+const NV={maps:[],map:null,img:new Image(),mode:'pose',pose:null,goal:null,st:{}};
+async function navMaps(){
+  const j=await (await fetch('/api/nav/maps')).json();
+  NV.maps=j.maps;
+  $('nmap').innerHTML=j.maps.length?j.maps.map((m,i)=>`<option value="${i}">${m.name}</option>`).join('')
+    :'<option>no floor maps yet - record one</option>';
+  $('nmap').value=Math.max(0,j.maps.findIndex(m=>m.id===j.sent));
+  pick();
+}
+function pick(){
+  NV.map=NV.maps[+$('nmap').value]; NV.pose=NV.goal=null;
+  if(NV.map){NV.img.onload=draw; NV.img.src=NV.map.png;}
+}
+$('nmap').onchange=pick;
+/* image pixel <-> map metres; image row 0 is the map's max y */
+function toPx(x,y){const m=NV.map;return [(x-m.origin[0])/m.res,NV.img.naturalHeight-(y-m.origin[1])/m.res];}
+function toW(i,j){const m=NV.map;return [m.origin[0]+i*m.res,m.origin[1]+(NV.img.naturalHeight-j)*m.res];}
+function draw(){
+  const c=$('ncv'),W=NV.img.naturalWidth,H=NV.img.naturalHeight,d=devicePixelRatio;
+  if(!W||!NV.map)return;
+  const cw=c.clientWidth; c.style.height=(cw*H/W)+'px';
+  c.width=cw*d; c.height=cw*H/W*d;
+  const g=c.getContext('2d'),k=c.width/W;
+  g.imageSmoothingEnabled=false; g.drawImage(NV.img,0,0,c.width,c.height);
+  const P=(x,y)=>toPx(x,y).map(v=>v*k);
+  const path=NV.st.path||[];
+  if(path.length){g.strokeStyle='#ffb74d';g.lineWidth=3*d;g.beginPath();
+    path.forEach(([x,y],i)=>{const [u,v]=P(x,y);i?g.lineTo(u,v):g.moveTo(u,v);});g.stroke();}
+  const mark=(p,col)=>{if(!p)return;const [u,v]=P(p[0],p[1]),r=7*d;
+    g.fillStyle=g.strokeStyle=col;g.beginPath();g.arc(u,v,r,0,7);g.fill();
+    g.lineWidth=3*d;g.beginPath();g.moveTo(u,v);
+    g.lineTo(u+Math.cos(p[2])*r*2.6,v-Math.sin(p[2])*r*2.6);g.stroke();};
+  mark(NV.pose,'#5fd08a'); mark(NV.goal,'#ff6b6b'); mark(NV.st.robot,'#6aa9ff');
+}
+/* tap = position, drag = position + heading */
+let down=null;
+$('ncv').onpointerdown=e=>{down=[e.offsetX,e.offsetY];};
+$('ncv').onpointerup=e=>{
+  if(!down||!NV.map)return;
+  const s=NV.img.naturalWidth/$('ncv').clientWidth;
+  const [x,y]=toW(down[0]*s,down[1]*s),dx=e.offsetX-down[0],dy=e.offsetY-down[1];
+  const p=[x,y,Math.hypot(dx,dy)>12?Math.atan2(-dy,dx):0]; down=null;
+  if(NV.mode==='pose'){NV.pose=p;navCmd('pose',p);}else NV.goal=p;
+  $('nmsg').textContent=(NV.mode==='pose'?'pose ':'goal ')+x.toFixed(1)+', '+y.toFixed(1)+' m';
+  draw();
+};
+document.querySelectorAll('[data-nmode]').forEach(b=>b.onclick=()=>{NV.mode=b.dataset.nmode;
+  document.querySelectorAll('[data-nmode]').forEach(o=>o.classList.toggle('on',o===b));});
+function navCmd(cmd,p){const b={cmd};if(p){b.x=p[0];b.y=p[1];b.yaw=p[2];}return post('/api/nav/cmd',b);}
+const needGoal=()=>{$('nmsg').textContent='set a goal on the map first';};
+$('bnsend').onclick=async()=>{
+  if(!NV.map)return;
+  $('bnsend').disabled=true; $('nmsg').textContent='sending…';
+  const j=await post('/api/nav/send',{map:NV.map.id});
+  $('nmsg').textContent=j.ok?'map sent':(j.error||'send failed');
+  $('bnsend').disabled=false;
+};
+$('bnplan').onclick=()=>NV.goal?navCmd('plan',NV.goal):needGoal();
+$('bngo').onclick=()=>{if(!NV.goal)return needGoal();
+  if(confirm('The robot will walk to the goal. Is the way clear?'))navCmd('go',NV.goal);};
+$('bnstop').onclick=()=>navCmd('stop');
+async function navTick(){
+  try{NV.st=await (await fetch('/api/nav/state')).json();
+    $('nstat').textContent=NV.st.status||'';draw();}catch(_){}
+}
+if(TAB==='nav'){navMaps();navTick();setInterval(navTick,1000);addEventListener('resize',draw);}
+
+/* ---- live SLAM ---- */
+/* The map arrives as 12.8 m tiles; each poll fetches only tiles whose version
+   changed (a handful while walking, none standing still), and the old image
+   stays up until the new one has loaded, so nothing flickers. */
+const LV={st:{},tiles:{},path:[],pathV:-1,pathBusy:false,queued:false};
+function lReq(){if(!LV.queued){LV.queued=true;requestAnimationFrame(()=>{LV.queued=false;lDraw();});}}
+function lDraw(){
+  const c=$('lcv'),d=devicePixelRatio,s=LV.st,m=s.map;
+  c.width=c.clientWidth*d; c.height=c.clientHeight*d;
+  const g=c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+  const keys=Object.keys(LV.tiles).filter(k=>LV.tiles[k].img);
+  if(!m||!m.bounds||!keys.length){g.fillStyle='#9298a3';g.font=13*d+'px system-ui';
+    g.fillText(s.running?'waiting for the first map…':'not running',16*d,28*d);return;}
+  /* fit the mapped area (cell bounds, 1 m margin); world metres -> canvas px */
+  const r=m.res,T=m.tile*r,b=m.bounds;
+  const x0=b[0]*r-1,y0=b[1]*r-1,x1=(b[2]+1)*r+1,y1=(b[3]+1)*r+1;
+  const k=Math.min(c.width/(x1-x0),c.height/(y1-y0));
+  const ox=(c.width-(x1-x0)*k)/2, oy=(c.height-(y1-y0)*k)/2;
+  const P=(x,y)=>[ox+(x-x0)*k, oy+(y1-y)*k];
+  g.imageSmoothingEnabled=k*r<1;
+  for(const key of keys){const [tx,ty]=key.split(',').map(Number),[u,v]=P(tx*T,(ty+1)*T);
+    /* +0.5 px: no hairline seams between neighbouring tiles */
+    g.drawImage(LV.tiles[key].img,u,v,T*k+0.5,T*k+0.5);}
+  const path=LV.path.slice();
+  if(s.pose)path.push([s.pose[0],s.pose[1]]);   /* the path refreshes 1/s; close the gap */
+  if(path.length>1){g.strokeStyle='#ffb74d';g.lineWidth=2*d;g.lineJoin='round';g.beginPath();
+    path.forEach(([x,y],i)=>{const [u,v]=P(x,y);i?g.lineTo(u,v):g.moveTo(u,v);});g.stroke();}
+  if(LV.path.length){const [u,v]=P(LV.path[0][0],LV.path[0][1]);g.fillStyle='#5fd08a';
+    g.beginPath();g.arc(u,v,4*d,0,7);g.fill();}
+  if(s.pose){const [u,v]=P(s.pose[0],s.pose[1]),a=s.pose[3],rr=8*d;
+    g.fillStyle='rgba(106,169,255,.25)';g.beginPath();g.arc(u,v,rr*2.2,0,7);g.fill();
+    g.fillStyle='#6aa9ff';g.beginPath();
+    g.moveTo(u+Math.cos(a)*rr*1.8,v-Math.sin(a)*rr*1.8);
+    g.lineTo(u+Math.cos(a+2.5)*rr,v-Math.sin(a+2.5)*rr);
+    g.lineTo(u+Math.cos(a-2.5)*rr,v-Math.sin(a-2.5)*rr);g.closePath();g.fill();}
+}
+function lTiles(m,stamp){
+  const want=m?m.tiles:{};
+  for(const key in LV.tiles)if(!(key in want))delete LV.tiles[key];   /* new session */
+  for(const key in want){
+    const t=LV.tiles[key]||(LV.tiles[key]={img:null,v:-1,want:-1}),v=want[key];
+    if(t.v===v||t.want===v)continue;
+    t.want=v; const im=new Image(),[tx,ty]=key.split(',');
+    im.onload=()=>{if(t.want===v||v>t.v){t.img=im;t.v=v;lReq();}};
+    im.src='/maps/live/tiles/t_'+tx+'_'+ty+'.png?v='+v+'&s='+stamp;
+  }
+}
+async function lPath(v){
+  if(LV.pathBusy||v===LV.pathV)return; LV.pathBusy=true;
+  try{LV.path=await (await fetch('/maps/live/path.json?v='+v+'&s='+LV.stamp)).json();LV.pathV=v;lReq();}
+  catch(_){} finally{LV.pathBusy=false;}
+}
+let lBusy=false;   /* 5 polls a second: never stack one on a slow one */
+async function lTick(){
+  if(lBusy)return; lBusy=true;
+  let s; try{s=await (await fetch('/api/live/state')).json();}catch(_){return;}
+  finally{lBusy=false;}
+  LV.st=s;
+  /* a restarted session reuses tile names: key image URLs by session start */
+  const stamp=s.t!=null&&s.updated?Math.round(s.updated-s.t):0;
+  if(stamp!==LV.stamp){LV.stamp=stamp;LV.tiles={};LV.path=[];LV.pathV=-1;}
+  $('blstart').disabled=s.running; $('blstop').disabled=!s.running;
+  const stale=s.running&&s.age!=null&&s.age>3;
+  $('lstat').textContent=!s.running&&s.status!=='saving'?(s.status==='mapping'?'stopped':s.status||'not started')
+    :stale?'no update for '+Math.round(s.age)+' s - is the lidar publishing?'
+    :s.imu===false&&s.status==='mapping'?'mapping (no IMU: map not levelled)':s.status;
+  $('lage').textContent=s.running&&s.t!=null?mmss(s.t):'';
+  if(s.pose){$('lpos').textContent=s.pose[0].toFixed(1)+', '+s.pose[1].toFixed(1)+' m';
+    $('lyaw').textContent=Math.round(s.pose[3]*180/Math.PI)+'°';}
+  if(s.dist!=null)$('ldist').textContent=s.dist.toFixed(1)+' m';
+  if(s.hz!=null)$('lhz').textContent=s.hz+' Hz'+(s.ms!=null?' · '+s.ms+' ms':'');
+  if(s.lag!=null)$('llag').textContent=s.lag+' / '+s.dropped;
+  $('lcl').textContent=s.engine||'KISS-SLAM';
+  lTiles(s.map,stamp);
+  if(s.path_v)lPath(s.path_v);
+  lReq();
+}
+$('blstart').onclick=()=>{$('blstart').disabled=true;
+  post('/api/live/start').then(lTick);};
+$('blstop').onclick=()=>{$('blstop').disabled=true;post('/api/live/stop',{one_floor:$('lone').checked,name:$('lname').value}).then(()=>{lTick();tick();});};
+if(TAB==='live'){lTick();setInterval(lTick,200);addEventListener('resize',lReq);}
+
+/* ---- thermal camera (toggle in the header, remembered per browser) ---- */
+const TH={on:false,timer:null};
+function thSet(on){
+  TH.on=on; $('thermal').hidden=!on; $('bthermal').classList.toggle('on',on);
+  try{localStorage.setItem('thermal',on?'1':'0');}catch(_){}
+  clearInterval(TH.timer);
+  if(on){ $('thimg').src='/thermal.mjpg?'+Date.now(); thStat(); TH.timer=setInterval(thStat,2000); }
+  else{ $('thimg').removeAttribute('src'); }            /* stops the stream */
+}
+async function thStat(){
+  try{const s=await (await fetch('/api/thermal/status')).json();
+    $('thstat').textContent=s.ok?'live':(s.age==null?'no thermal camera':'no signal for '+Math.round(s.age)+' s');
+    /* the stream ends after 30 s without frames: restart it when frames return */
+    if(s.ok&&TH.stale){TH.stale=false;$('thimg').src='/thermal.mjpg?'+Date.now();}
+    if(!s.ok)TH.stale=true;
+  }catch(_){$('thstat').textContent='panel unreachable';}
+}
+$('bthermal').onclick=()=>thSet(!TH.on);
+/* tap the picture for full screen; tap again or Esc to leave */
+function thFull(on){
+  const w=$('thwrap'); w.classList.toggle('full',on);
+  try{
+    if(on&&w.requestFullscreen&&!document.fullscreenElement) w.requestFullscreen().catch(()=>{});
+    if(!on&&document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  }catch(_){}
+}
+$('thimg').onclick=()=>thFull(!$('thwrap').classList.contains('full'));
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement) $('thwrap').classList.remove('full');});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&$('thwrap').classList.contains('full'))thFull(false);});
+$('thimg').onerror=()=>{TH.stale=true;};
+try{ if(/[?&]thermal=1/.test(location.search)||localStorage.getItem('thermal')==='1') thSet(true); }catch(_){}
+
+/* ---- the map overlay ---- */
+let shown=null;
+function open_(url){
+  $('fr').src=url; $('ov').classList.add('on');
+  document.body.style.overflow='hidden';
+}
+$('bclose').onclick=()=>{
+  $('ov').classList.remove('on'); $('fr').src='about:blank';
+  document.body.style.overflow='';
+};
+addEventListener('keydown',e=>{if(e.key==='Escape')$('bclose').click();});
+
+/* ---- status poll ---- */
+const PILL={idle:['',  'idle'], scanning:['run','scanning'],
+  recording:['rec','recording'], processing:['run','processing'],
+  done:['ok','done'], error:['err','error']};
+
+async function tick(){
+  let s;
+  try{ s=await (await fetch('/api/status')).json(); }
+  catch(_){ $('pilltxt').textContent='offline'; return; }
+  const busy=['scanning','recording','processing'].includes(s.state);
+  const [cls,txt]=PILL[s.state]||['','?'];
+  $('pill').className='pill '+cls;
+  $('pilltxt').textContent=txt+(s.state==='recording'?' '+s.name:'');
+
+  $('step').textContent=s.step||'nothing running';
+  $('clock').textContent=busy||s.state!=='idle'?mmss(s.elapsed):'—';
+  const bar=$('bar');
+  bar.className='bar'+(busy?' on':'');
+  if(busy){
+    bar.classList.add('on');
+    if(s.total>0){bar.classList.remove('wait');
+      bar.firstElementChild.style.width=Math.min(100,100*s.elapsed/s.total)+'%';}
+    else{bar.classList.add('wait');bar.firstElementChild.style.width='';}
+  }
+  if(s.log&&s.log.length){
+    const p=$('log'), stick=p.scrollTop+p.clientHeight>=p.scrollHeight-24;
+    p.textContent=s.log.join('\n');
+    if(stick)p.scrollTop=p.scrollHeight;
+  }
+
+  $('bscan').disabled=busy;
+  $('brec').disabled=busy;
+  $('bstop').disabled=s.state!=='recording';
+  const can=['scanning','processing'].includes(s.state);
+  $('bcancel').style.display=can?'block':'none';
+  if(!can)$('bcancel').disabled=false;
+
+  const v=$('bview');
+  v.style.display=s.result?'block':'none';
+  if(s.result){v.onclick=()=>open_(s.result);}
+  if(s.result&&s.result!==shown){shown=s.result;open_(s.result);list();}
+}
+
+async function list(){
+  try{
+    const items=await (await fetch('/api/list')).json();
+    $('lib').innerHTML=items.length?items.map(i=>
+      `<li><a href="${i.url}" target="_blank" rel="noopener"><b>${i.name}</b>`+
+      `<span>${i.when} &middot; ${i.mb} MB</span></a></li>`).join('')
+      :'<li><a><b>nothing yet</b><span>press a button above</span></a></li>';
+  }catch(_){}
+}
+
+tick(); list();
+setInterval(tick,1000);
+</script></body></html>

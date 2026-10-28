@@ -23,6 +23,7 @@ import tempfile
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from robot.lio_relay import wrap  # noqa: E402
 from robot.locate import SPREAD_XY_M  # noqa: E402
 
 ODOMS = ('/odom_fused', '/leg_odom2', '/lio_odom')
@@ -400,10 +401,6 @@ def tag_check(folder, run, tags_file):
         et = np.array([r[2] for r in rows if r[1] == tid])
         out.append('    tag %d: %3d sightings, median %.3f m' % (tid, len(et), np.median(et)))
     return {'tag_err_median_m': float(np.median(e)), 'tag_err_p90_m': float(np.percentile(e, 90))}, out
-
-
-def wrap(a):
-    return math.atan2(math.sin(a), math.cos(a))
 
 
 def compare(a, b, tags_file=None):
