@@ -1,0 +1,101 @@
+# Nav2 Humble on the Orin, shadow mode (nav_stack_migration.md, step 3): controller_server with
+# MPPI on a local costmap built from CMU terrainAnalysis. Its cmd_vel is remapped to
+# /shadow/cmd_vel by shadow.sh and drives nothing. Speeds and footprint as the Jetson's RPP
+# (env/nav2-mapless-lite3.patch): 0.5 m/s, no sideways steps, 0.6 x 0.4 m.
+controller_server:
+  ros__parameters:
+    controller_frequency: 10.0
+    odom_topic: /odom
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugin: progress_checker
+    goal_checker_plugins: [general_goal_checker]
+    controller_plugins: [FollowPath]
+    # In shadow the robot moves as RPP says, so "no progress" would only judge RPP (it aborted
+    # MPPI where he turned on the spot, bag test 2026-10-28). Back to 0.5 m / 10 s when MPPI drives.
+    progress_checker:
+      plugin: nav2_controller::SimpleProgressChecker
+      required_movement_radius: 0.5
+      movement_time_allowance: 3600.0
+    general_goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+      stateful: true
+    # From Nav2's MPPI page; batch and horizon cut for the Orin Nano (10 Hz, 3 s ahead).
+    FollowPath:
+      plugin: nav2_mppi_controller::MPPIController
+      time_steps: 30
+      model_dt: 0.1
+      batch_size: 1000
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      vx_max: 0.5
+      vx_min: -0.2
+      vy_max: 0.0
+      wz_max: 0.8
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.2
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: DiffDrive
+      visualize: false
+      reset_period: 1.0
+      regenerate_noises: false
+      critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic, PathAlignCritic,
+                PathFollowCritic, PathAngleCritic, PreferForwardCritic]
+      ConstraintCritic: {enabled: true, cost_power: 1, cost_weight: 4.0}
+      GoalCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 1.4}
+      GoalAngleCritic: {enabled: true, cost_power: 1, cost_weight: 3.0, threshold_to_consider: 0.5}
+      PreferForwardCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 0.5}
+      CostCritic: {enabled: true, cost_power: 1, cost_weight: 3.81, critical_cost: 300.0,
+                   consider_footprint: true, collision_cost: 1000000.0, near_goal_distance: 1.0,
+                   trajectory_point_step: 2}
+      PathAlignCritic: {enabled: true, cost_power: 1, cost_weight: 14.0, max_path_occupancy_ratio: 0.05,
+                        trajectory_point_step: 4, threshold_to_consider: 0.5, offset_from_furthest: 20,
+                        use_path_orientations: false}
+      PathFollowCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, offset_from_furthest: 5,
+                         threshold_to_consider: 1.4}
+      PathAngleCritic: {enabled: true, cost_power: 1, cost_weight: 2.0, offset_from_furthest: 4,
+                        threshold_to_consider: 0.5, max_angle_to_furthest: 1.0, mode: 0}
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      transform_tolerance: 0.3
+      footprint: "[[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]]"
+      footprint_padding: 0.05
+      plugins: [terrain_layer, inflation_layer]
+      # /terrain_h is terrainAnalysis's map with z = height above the local ground
+      # (shadow_nav.py): above 0.15 m marks, everything clears the way to it.
+      terrain_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: obstacles ground
+        obstacles: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: true,
+                    clearing: false, min_obstacle_height: 0.15, max_obstacle_height: 2.0,
+                    obstacle_max_range: 3.5}
+        ground: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: false,
+                 clearing: true, min_obstacle_height: -1.0, max_obstacle_height: 2.0,
+                 raytrace_max_range: 4.0}
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.45
+        cost_scaling_factor: 8.0
+
+lifecycle_manager_shadow:
+  ros__parameters:
+    autostart: true
+    node_names: [controller_server]
+    bond_timeout: 0.0
