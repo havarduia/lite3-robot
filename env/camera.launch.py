@@ -23,6 +23,9 @@ def generate_launch_description():
             'camera_name': 'camera',
             'enable_depth': True,
             'depth_module.depth_profile': '424,240,30',    # vendor's resolution
+            # High Accuracy: the default preset matched the bridge's metal-grid fences
+            # wrongly, putting phantoms 0.5 m ahead that held RPP at its floor (README.md).
+            'depth_module.visual_preset': 3,
             # Colour is only looked at (HMI, through rs_stream.py), which switches it
             # on while it runs: off saves the driver 6% of a core. So it can be
             # sharp; depth stays at the vendor's size, which Nav2 and voa expect.

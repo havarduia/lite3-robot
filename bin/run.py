@@ -3,6 +3,8 @@
 
     bin/run.py start <name> [--minutes 40]    load on all three, a bag on the perception computer
     bin/run.py start <name> --frames          also the front camera, 2 frames a second, on the Orin
+    bin/run.py start <name> --depth --minutes 2   also the depth camera's cloud (what the costmap's camera
+                                              layer reads, ~10 MB/s): short runs only
     bin/run.py note "arrived 0.07 m"          a remark, stamped with the laptop's clock
     bin/run.py stop                           stop, fetch into logs/<date>_<name>/, clean up
     bin/run.py purge                          delete camera frames over an hour old (cron, every 5 min)
@@ -127,7 +129,7 @@ def purge_frames(now=None):
                   % (os.path.relpath(os.path.dirname(os.path.dirname(front)), REPO), FRAMES_KEEP_S // 60))
 
 
-def start(name, minutes, via, frames=False):
+def start(name, minutes, via, frames=False, depth=False):
     if os.path.exists(CURRENT):
         raise SystemExit('a run is going: %s (bin/run.py stop first)' % open(CURRENT).read().strip())
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name):
@@ -141,6 +143,8 @@ def start(name, minutes, via, frames=False):
     loadwatch = open(os.path.join(REPO, 'robot', 'loadwatch.py'), 'rb').read()
     frontcam = open(os.path.join(REPO, 'robot', 'frontcam.py'), 'rb').read()
     topics = open(os.path.join(REPO, 'env', 'runlog_topics.txt'), 'rb').read()
+    if depth:
+        topics += b'\n/camera/depth/color/points\n'
     for host, route in routes(via).items():
         d = remote_dir(name, host)
         sh(route, 'mkdir -p %s && cat > %s/loadwatch.py' % (d, d), stdin=loadwatch)
@@ -217,12 +221,13 @@ def main():
     p.add_argument('--minutes', type=float, default=40)
     p.add_argument('--local', action='store_true')
     p.add_argument('--frames', action='store_true', help='record front camera frames (personal data: PRIVACY.md)')
+    p.add_argument('--depth', action='store_true', help="also record the depth camera's point cloud (heavy)")
     a = p.parse_args()
     purge_frames()
     if a.what == 'start':
         if not a.arg:
             p.error('start needs a name')
-        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale', a.frames)
+        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale', a.frames, a.depth)
     elif a.what == 'note':
         if not a.arg:
             p.error('note needs the text')

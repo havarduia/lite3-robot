@@ -179,6 +179,13 @@ docs/                  the documentation; docs/history/ has lab notes
   refuse to start (docs/lidar.md).
 - Below **~0.2 m/s** the gait shuffles and drifts sideways.
 - The perception computer's clock is skewed: file timestamps are meaningless.
+- **Metal-grid fences fool the depth camera.** On the bridge (2026-10-28,
+  `logs/2026-10-28_bridge-depth`), the D435 on its default preset reported points
+  0.4-0.7 m ahead at lens height, where the lidar saw 1.3-2.6 m. They stayed in the
+  costmap for 15 s, he walked into them, and RPP held him at 0.15 m/s for 86% of
+  the crossing (0.50 off the bridge). `env/camera.launch.py` now uses the High
+  Accuracy preset (3), which keeps about 40% of the points (3900 -> 1600 per cloud).
+  Not yet re-tested on the bridge.
 
 ## Known limitations
 
