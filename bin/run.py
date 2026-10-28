@@ -5,6 +5,8 @@
     bin/run.py start <name> --frames          also the front camera, 2 frames a second, on the Orin
     bin/run.py start <name> --depth --minutes 2   also the depth camera's cloud (what the costmap's camera
                                               layer reads, ~10 MB/s): short runs only
+    bin/run.py start <name> --orin-bag        also FAST-LIO2's cloud, odometry, gravity and the IMU, bagged
+                                              on the Orin (~6 MB/s) into ~/bags/<date>_<name>; left there
     bin/run.py note "arrived 0.07 m"          a remark, stamped with the laptop's clock
     bin/run.py stop                           stop, fetch into logs/<date>_<name>/, clean up
     bin/run.py purge                          delete camera frames over an hour old (cron, every 5 min)
@@ -40,6 +42,10 @@ CURRENT = os.path.join(LOGS, '.current')
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
 HOSTS = ('motion', 'jetson', 'orin')
 ROBOT_ENV = 'source ~/robot/env/lite3_env.sh >/dev/null 2>&1'
+ORIN_ENV = 'source /opt/ros/humble/setup.bash; export ROS_DOMAIN_ID=42'
+# For terrain analysis offline (nav_stack_migration.md, step 2). Too big to fetch over the
+# hotspot, and the replay runs on the Orin, so the bag stays there.
+ORIN_TOPICS = '/cloud_registered /Odometry /lio/gravity /livox/imu'
 # The laptop's own ROS, walled off from any robot (memory: laptop testing).
 LOCAL_ENV = 'source /opt/ros/jazzy/setup.bash; export ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1; unset CYCLONEDDS_URI'
 STOP_WAIT_S = 15        # a bag closes its file on SIGINT; give it this long
@@ -129,7 +135,7 @@ def purge_frames(now=None):
                   % (os.path.relpath(os.path.dirname(os.path.dirname(front)), REPO), FRAMES_KEEP_S // 60))
 
 
-def start(name, minutes, via, frames=False, depth=False):
+def start(name, minutes, via, frames=False, depth=False, orin_bag=False):
     if os.path.exists(CURRENT):
         raise SystemExit('a run is going: %s (bin/run.py stop first)' % open(CURRENT).read().strip())
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name):
@@ -155,6 +161,11 @@ def start(name, minutes, via, frames=False, depth=False):
             sh(route, 'cat > %s/frontcam.py' % d, stdin=frontcam)
             sh(route, detached(d, 'frontcam', 'timeout %d python3 %s/frontcam.py %s/front %d %s'
                                % (cap, d, d, cap, FRONT_PER_S)))
+        if orin_bag and host == 'orin':
+            env, home = (LOCAL_ENV, '/tmp') if route is None else (ORIN_ENV, '/home/lite3')
+            meta['orin_bag'] = '%s/bags/%s' % (home, os.path.basename(folder))
+            sh(route, 'mkdir -p %s/bags; %s; %s' % (home, env, detached(
+                d, 'bag', 'timeout -s INT %d ros2 bag record -s sqlite3 -o %s %s' % (cap, meta['orin_bag'], ORIN_TOPICS))))
         if host == 'jetson':
             sh(route, 'cat > %s/topics.txt' % d, stdin=topics)
             env = LOCAL_ENV if route is None else ROBOT_ENV
@@ -212,6 +223,8 @@ def stop():
     json.dump(meta, open(os.path.join(folder, 'meta.json'), 'w'), indent=1)
     os.remove(CURRENT)
     print('fetched into %s; bin/report.py %s' % (folder, os.path.relpath(folder)))
+    if meta.get('orin_bag'):
+        print('the Orin bag stays on the Orin: %s' % meta['orin_bag'])
 
 
 def main():
@@ -222,12 +235,13 @@ def main():
     p.add_argument('--local', action='store_true')
     p.add_argument('--frames', action='store_true', help='record front camera frames (personal data: PRIVACY.md)')
     p.add_argument('--depth', action='store_true', help="also record the depth camera's point cloud (heavy)")
+    p.add_argument('--orin-bag', action='store_true', help="also bag FAST-LIO2's output on the Orin (kept there)")
     a = p.parse_args()
     purge_frames()
     if a.what == 'start':
         if not a.arg:
             p.error('start needs a name')
-        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale', a.frames, a.depth)
+        start(a.arg, a.minutes, 'local' if a.local else 'hotspot' if on_hotspot() else 'tailscale', a.frames, a.depth, a.orin_bag)
     elif a.what == 'note':
         if not a.arg:
             p.error('note needs the text')
