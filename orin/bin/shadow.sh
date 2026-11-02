@@ -5,13 +5,17 @@
 # to the robot. Needs FAST-LIO2 running (lio_live). Log: ~/shadow/NAME.csv; nodes' output
 # in ~/shadow/NAME.log. Stopped with TERM: a script's background jobs ignore SIGINT.
 # drive (step 4): MPPI's vx_max 0.3, the clamp perception's shadow_link drive puts on it, so its
-# rollouts are what he will do. What drives is chosen on perception (~/nav_stack), not here.
+# rollouts are what he will do, and only then do its commands go back to perception (shadow_nav.py).
+# Whether they drive is chosen on perception (~/nav_stack).
 PIDS=/tmp/shadow.pids
 case "$1" in
 start)
     name=${2:?usage: shadow.sh start NAME [drive]}
-    slow=""
-    [ "$3" = drive ] && slow="-p FollowPath.vx_max:=0.3"
+    slow="" drive=""
+    if [ "$3" = drive ]; then
+        [ "${SHADOW_DOMAIN:-42}" = 42 ] || { echo "drive is for the live domain 42, not a replay"; exit 1; }
+        slow="-p FollowPath.vx_max:=0.3" drive=drive
+    fi
     [ -s $PIDS ] && { echo "already running: $PIDS"; exit 1; }
     source /opt/ros/humble/setup.bash
     source ~/cmu_ws/install/setup.bash
@@ -27,7 +31,7 @@ start)
         ~/cmu_ws/install/lite3_terrain/lib/lite3_terrain/terrain_level >> $log 2>&1 & echo $!
         ~/cmu_ws/install/terrain_analysis/lib/terrain_analysis/terrainAnalysis --ros-args $ta \
             -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 >> $log 2>&1 & echo $!
-        python3 shadow_nav.py ~/shadow/$name.csv >> $log 2>&1 & echo $!
+        python3 shadow_nav.py ~/shadow/$name.csv $drive >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_controller/controller_server --ros-args --params-file shadow_nav2.yaml \
             $slow -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager --ros-args \

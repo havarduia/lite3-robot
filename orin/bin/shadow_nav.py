@@ -4,13 +4,14 @@
 The Jetson's robot/shadow_link.py sends Nav2's route (map coordinates, with where locate.py
 had him on the map and when) and the command RPP gives. This puts the route into the Orin's
 odom by its own pose of that moment and hands it to the Orin's controller_server (MPPI on the terrain map); MPPI's command, on
-/shadow/cmd_vel, goes to the log next to RPP's and back to perception (DRIVE_PORT), where
-robot/shadow_link.py drives with it only in step 4 (`shadow_link drive`); otherwise nothing there listens.
+/shadow/cmd_vel, goes to the log next to RPP's; with `drive` also back to perception (DRIVE_PORT),
+where robot/shadow_link.py drive publishes it (step 4). Never `drive` in a bag replay: a ROS domain
+does not keep UDP apart, and a replay's MPPI would reach a live perception.
 
 Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw) and /odom with speeds.
 /terrain_h, what the costmap marks, comes from orin/lite3_terrain's terrain_level.
 
-    python3 shadow_nav.py LOG.csv        system python, ROS sourced; started by shadow.sh
+    python3 shadow_nav.py LOG.csv [drive]   system python, ROS sourced; started by shadow.sh
     python3 shadow_nav.py check          self-check, no ROS
 """
 import collections
@@ -57,7 +58,7 @@ def unpack_route(data):
     return when, (x, y, yaw), [tuple(map(float, r)) for r in a]
 
 
-def main(log_path):
+def main(log_path, drive=False):
     import rclpy
     from action_msgs.msg import GoalStatus
     from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
@@ -102,7 +103,8 @@ def main(log_path):
     back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def mppi(c):
-        back.sendto(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z), (JETSON, DRIVE_PORT))
+        if drive:
+            back.sendto(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z), (JETSON, DRIVE_PORT))
         with lock:
             rpp = s['rpp'] if s['rpp'] and time.monotonic() - s['rpp'][0] < CMD_STALE_S else None
         b = s['base'] or (math.nan,) * 3
@@ -190,4 +192,4 @@ def check():
 
 
 if __name__ == '__main__':
-    check() if sys.argv[1:] == ['check'] else main(sys.argv[1])
+    check() if sys.argv[1:] == ['check'] else main(sys.argv[1], drive=sys.argv[2:] == ['drive'])
