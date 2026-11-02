@@ -2,6 +2,9 @@
 # Launch the mapless Nav2 stack. Normally called by lite3.Lite3.nav_start(),
 # which enforces stand-first ordering and cleans up orphaned nodes.
 source "$(dirname "${BASH_SOURCE[0]:-$0}")/lite3_env.sh"
+# The Orin's MPPI needs a floor map (its route comes with /localized): mapless is RPP's only
+[ "${NAV_STACK:-$(cat "$HOME/nav_stack" 2>/dev/null || echo jetson)}" = jetson ] \
+    || { echo "NAV_STACK is orin: mapless Nav2 is RPP only; use a floor, or rm ~/nav_stack" >&2; exit 1; }
 # The sonars as Range for the costmap range_layer. Same process group as the
 # launch below, so nav_stop() kills it with the stack.
 rm -f /tmp/sonar_range.ready

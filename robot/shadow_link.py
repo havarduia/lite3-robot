@@ -6,13 +6,22 @@ same route as today's stack, and its commands are logged next to RPP's, never se
 when; the Orin turns it into its own frame with its odometry of that moment. Each /cmd_vel
 goes over as it is. Nothing here changes what drives the robot.
 
+Step 4, `drive`: started by env/start_nav2_map.sh when the switch says orin (NAV_STACK, or the
+file ~/nav_stack). Nav2 here still plans and decides when a goal is over, but RPP and the
+recoveries publish on /rpp/cmd_vel, which only goes to the Orin's log. MPPI's command comes back
+from the Orin and is published on /cmd_vel, clamped to DRIVE_VX/DRIVE_WZ, and only while RPP is
+following a route here (a cancel, estop or finished goal ends that within RPP_FRESH_S).
+No MPPI datagram for MPPI_STALE_S: a stop.
+
 Kept cheap: the Jetson is ~75% busy without it. A tf listener (every /tf, 50+ a second, in
 Python) cost ~0.4 core and starved the panel into "lost on the way" stops (big_walk, 2026-10-28).
 
     python3 -m robot.shadow_link          while Nav2 runs (source env/lite3_env.sh first)
+    python3 -m robot.shadow_link drive    MPPI drives (env/start_nav2_map.sh starts it)
     python3 -m robot.shadow_link check    self-check, no ROS
 """
 import math
+import signal
 import socket
 import struct
 import sys
@@ -27,6 +36,13 @@ MAX_POINTS = 1000       # 100 m of route, 12 kB: one datagram
 POSE_STALE_S = 1.5      # locate.py speaks twice a second; an older pose places no route
 ROUTE = struct.Struct('<c4d')       # T, when (wall clock), base_link x y yaw on the map; float32 (x, y, yaw) follow
 CMD = struct.Struct('<c3d')
+DRIVE_PORT = 8045       # MPPI's commands from the Orin (orin/bin/shadow_nav.py)
+DRIVE_VX = (-0.2, 0.3)  # m/s: step 4 stays slow until the camera and sonars reach the Orin (step 5)
+DRIVE_WZ = 0.8          # rad/s, MPPI's own wz_max
+RPP_FRESH_S = 0.6       # RPP speaks at 5 Hz (controller_frequency) while it follows a route, late under load
+MPPI_STALE_S = 0.3      # MPPI speaks at 10 Hz too
+DRIVE_HZ = 20
+STOP_TICKS = 10         # zeros sent after driving ends (best effort drops some), then quiet
 
 
 def thin(points):
@@ -42,7 +58,20 @@ def route_packet(when, pose, points):
     return ROUTE.pack(b'T', when, *pose) + struct.pack('<%df' % (3 * len(points)), *[v for p in points for v in p])
 
 
-def main():
+def _interrupt(*_):
+    raise KeyboardInterrupt
+
+
+def drive_cmd(mppi, mppi_age, rpp_age):
+    """What to publish: MPPI's (vx, vy, wz) clamped, or zeros when RPP is not following a
+    route here or MPPI has gone quiet."""
+    if mppi is None or mppi_age > MPPI_STALE_S or rpp_age > RPP_FRESH_S:
+        return 0.0, 0.0, 0.0
+    vx, _, wz = mppi
+    return min(max(vx, DRIVE_VX[0]), DRIVE_VX[1]), 0.0, min(max(wz, -DRIVE_WZ), DRIVE_WZ)
+
+
+def main(drive=False):
     import rclpy
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Path
@@ -71,12 +100,51 @@ def main():
     # best effort takes either kind of publisher
     node.create_subscription(Float64MultiArray, LOCALIZED_TOPIC, localized, 2)
     node.create_subscription(Path, '/plan', plan, qos_profile_sensor_data)
-    node.create_subscription(Twist, '/cmd_vel', lambda c: out.sendto(
-        CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z), (ORIN, ORIN_PORT)), qos_profile_sensor_data)
+    def rpp(c):
+        here['rpp_at'] = time.monotonic()
+        out.sendto(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z), (ORIN, ORIN_PORT))
+
+    node.create_subscription(Twist, '/rpp/cmd_vel' if drive else '/cmd_vel', rpp, qos_profile_sensor_data)
+    if drive:
+        pub = node.create_publisher(Twist, '/cmd_vel', qos_profile_sensor_data)
+        back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        back.bind(('', DRIVE_PORT))
+        back.setblocking(False)
+        d = {'mppi': None, 'at': 0.0, 'zeros': 0}
+
+        def send(vx, vy, wz):
+            t = Twist()
+            t.linear.x, t.linear.y, t.angular.z = vx, vy, wz
+            pub.publish(t)
+
+        def tick():
+            while True:
+                try:
+                    data, (host, _) = back.recvfrom(64)
+                except BlockingIOError:
+                    break
+                if host == ORIN and len(data) == CMD.size and data[:1] == b'V':
+                    d['mppi'], d['at'] = CMD.unpack(data)[1:], time.monotonic()
+            now = time.monotonic()
+            if now - here.get('rpp_at', 0.0) <= RPP_FRESH_S:
+                send(*drive_cmd(d['mppi'], now - d['at'], now - here['rpp_at']))
+                d['zeros'] = STOP_TICKS
+            elif d['zeros'] > 0:        # quiet afterwards, so the panel's own turns and walks get through
+                send(0.0, 0.0, 0.0)
+                d['zeros'] -= 1
+
+        node.create_timer(1.0 / DRIVE_HZ, tick)
+    # nav_stop() ends the group with INT, TERM, KILL; a bash script's background job ignores INT
+    signal.signal(signal.SIGTERM, _interrupt)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    finally:
+        if drive:
+            for _ in range(STOP_TICKS):
+                send(0.0, 0.0, 0.0)
+                time.sleep(0.02)
 
 
 def check():
@@ -87,8 +155,14 @@ def check():
     pk = route_packet(12.5, (1.0, 2.0, 0.5), [(1.0, 2.0, 3.0)])
     assert ROUTE.unpack(pk[:ROUTE.size]) == (b'T', 12.5, 1.0, 2.0, 0.5)
     assert struct.unpack('<3f', pk[ROUTE.size:]) == (1.0, 2.0, 3.0)
+    assert drive_cmd((0.5, 0.1, -2.0), 0.1, 0.1) == (0.3, 0.0, -0.8)         # clamped, no strafe
+    assert drive_cmd((-0.5, 0.0, 0.2), 0.1, 0.1) == (-0.2, 0.0, 0.2)
+    assert drive_cmd((0.2, 0.0, 0.1), 0.1, 0.1) == (0.2, 0.0, 0.1)
+    assert drive_cmd((0.2, 0.0, 0.1), 0.5, 0.1) == (0.0, 0.0, 0.0)          # MPPI quiet
+    assert drive_cmd((0.2, 0.0, 0.1), 0.1, 0.7) == (0.0, 0.0, 0.0)          # no route here
+    assert drive_cmd(None, 0.0, 0.0) == (0.0, 0.0, 0.0)
     print('shadow_link ok')
 
 
 if __name__ == '__main__':
-    check() if sys.argv[1:] == ['check'] else main()
+    check() if sys.argv[1:] == ['check'] else main(drive=sys.argv[1:] == ['drive'])

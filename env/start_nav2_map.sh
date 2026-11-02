@@ -9,6 +9,11 @@ FLOOR="${1:?usage: start_nav2_map.sh <floor>}"
 # localizer, robot/cloud_locate.py; .planning/plans/cloud-localization.md). From the panel:
 # LOCALIZER=cloud python3 -m robot.hmi
 LOCALIZER="${LOCALIZER:-amcl}"
+# Who drives (step 4 of ~/nav_stack_migration.md): jetson = RPP here, as always; orin = the
+# Orin's MPPI (orin/bin/shadow.sh start NAME drive) through robot/shadow_link.py drive.
+# A file, so the panel needs no restart: echo orin > ~/nav_stack, then Nav2 off and on.
+NAV_STACK="${NAV_STACK:-$(cat "$HOME/nav_stack" 2>/dev/null || echo jetson)}"
+case "$NAV_STACK" in jetson|orin) ;; *) echo "NAV_STACK must be jetson or orin, not '$NAV_STACK'" >&2; exit 1 ;; esac
 MAP="$HOME/lite3_maps/$FLOOR/map.yaml"
 [ -f "$MAP" ] || { echo "no map for floor '$FLOOR' ($MAP)" >&2; exit 1; }
 # Map mode's parameters are the mapless ones with the map added, made afresh
@@ -29,5 +34,7 @@ else
     python3 -m robot.lio_relay map ""       # the Orin's localizer lets go: AMCL owns map -> odom
     python3 -m robot.locate "$FLOOR" &
 fi
+[ "$NAV_STACK" = orin ] && python3 -m robot.shadow_link drive &
 for _ in $(seq 100); do [ -e /tmp/sonar_range.ready ] && break; sleep 0.1; done
-exec ros2 launch "$ENV_DIR/nav2_map.launch.py" params:="$PARAMS" localizer:="$LOCALIZER"
+echo "nav_stack $NAV_STACK"
+exec ros2 launch "$ENV_DIR/nav2_map.launch.py" params:="$PARAMS" localizer:="$LOCALIZER" nav_stack:="$NAV_STACK"

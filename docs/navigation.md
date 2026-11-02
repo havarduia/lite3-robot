@@ -111,6 +111,30 @@ the very group it was meant to kill. A
 group counts as gone once only zombies are left in it: the dead leader of a
 stack this process launched stays a zombie, and waiting on it cost 8 s a stop.
 
+### Who drives: RPP here, or MPPI on the Orin
+
+Map mode only. The switch is `NAV_STACK` in the environment, else the file
+`~/nav_stack` on perception (`jetson` or `orin`; missing means `jetson`). It is read
+each time Nav2 starts, so switching needs no panel restart: `echo orin > ~/nav_stack`,
+then Nav2 off and on. `rm ~/nav_stack` and Nav2 off and on is the way back.
+
+With `orin`, perception's Nav2 still plans, runs the goal and decides when it is
+over, but RPP and the recoveries publish on `/rpp/cmd_vel`, which drives nothing
+(`SetRemap` in `env/nav2_map.launch.py`). `robot/shadow_link.py drive`, started in
+Nav2's process group, sends the route to the Orin and publishes MPPI's answer
+on `/cmd_vel`:
+
+- clamped to -0.2..0.3 m/s and ±0.8 rad/s, no strafe;
+- only while RPP or a recovery is speaking (RPP at 5 Hz while it follows a route,
+  late under load), so a cancel, an estop or a finished goal ends MPPI's driving
+  within 0.6 s (18 cm at 0.3 m/s); during a recovery MPPI keeps the route it had;
+- a stop when MPPI has said nothing for 0.3 s, and on SIGTERM.
+
+On the Orin: `~/bin/shadow.sh start NAME drive` (MPPI's own `vx_max` 0.3, so its
+rollouts match the clamp). Mapless Nav2 refuses to start with `orin`. Not yet in
+MPPI's costmap: the depth camera and the sonars (step 5 of the migration), so RPP's
+"collision ahead" stops do not happen with `orin`; only the lidar sees obstacles.
+
 ## Reading the costmap and choosing goals
 
 - `cost_at(x, y)`: cost of one cell (0 free … 99 lethal, `None` off-map).

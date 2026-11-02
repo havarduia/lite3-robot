@@ -1,13 +1,17 @@
 #!/bin/bash
-# shadow.sh start NAME | stop | state - MPPI in shadow on the Orin (nav_stack_migration.md, step 3):
+# shadow.sh start NAME [drive] | stop | state - MPPI in shadow on the Orin (nav_stack_migration.md, step 3):
 # terrain_level (orin/lite3_terrain, C++) -> terrainAnalysis -> controller_server (MPPI), following the Jetson's route
 # (robot/shadow_link.py on the Jetson). Its commands go to /shadow/cmd_vel and a log, never
 # to the robot. Needs FAST-LIO2 running (lio_live). Log: ~/shadow/NAME.csv; nodes' output
 # in ~/shadow/NAME.log. Stopped with TERM: a script's background jobs ignore SIGINT.
+# drive (step 4): MPPI's vx_max 0.3, the clamp perception's shadow_link drive puts on it, so its
+# rollouts are what he will do. What drives is chosen on perception (~/nav_stack), not here.
 PIDS=/tmp/shadow.pids
 case "$1" in
 start)
-    name=${2:?usage: shadow.sh start NAME}
+    name=${2:?usage: shadow.sh start NAME [drive]}
+    slow=""
+    [ "$3" = drive ] && slow="-p FollowPath.vx_max:=0.3"
     [ -s $PIDS ] && { echo "already running: $PIDS"; exit 1; }
     source /opt/ros/humble/setup.bash
     source ~/cmu_ws/install/setup.bash
@@ -25,7 +29,7 @@ start)
             -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 >> $log 2>&1 & echo $!
         python3 shadow_nav.py ~/shadow/$name.csv >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_controller/controller_server --ros-args --params-file shadow_nav2.yaml \
-            -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!
+            $slow -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager --ros-args \
             -r __node:=lifecycle_manager_shadow --params-file shadow_nav2.yaml >> $log 2>&1 & echo $!
     } > $PIDS
@@ -40,5 +44,5 @@ stop)
 state)
     [ -s $PIDS ] && ps -o pid,pcpu,rss,cmd -p "$(paste -sd, $PIDS)" | cut -c1-110 || echo "not running" ;;
 *)
-    echo "usage: shadow.sh start NAME | stop | state"; exit 2 ;;
+    echo "usage: shadow.sh start NAME [drive] | stop | state"; exit 2 ;;
 esac

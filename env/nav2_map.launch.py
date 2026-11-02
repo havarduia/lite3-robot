@@ -5,6 +5,9 @@
 localizer:=cloud leaves AMCL out: lio_relay.py publishes map -> odom from the
 Orin's 3D fixes instead (robot/cloud_locate.py).
 
+nav_stack:=orin (step 4 of ~/nav_stack_migration.md): RPP and the recoveries publish on
+/rpp/cmd_vel instead, and robot/shadow_link.py drive puts the Orin's MPPI on /cmd_vel.
+
 Started by env/start_nav2_map.sh, which makes that parameter file first
 (env/nav2_map_params.py). The vendor's own map launch (dr_nav2) is not used:
 it has no AMCL, and its lidar layer is for another lidar.
@@ -17,7 +20,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 
 TF = [('/tf', 'tf'), ('/tf_static', 'tf_static')]      # as nav2_bringup's own launch files do
 
@@ -25,10 +28,14 @@ TF = [('/tf', 'tf'), ('/tf_static', 'tf_static')]      # as nav2_bringup's own l
 def generate_launch_description():
     params = LaunchConfiguration('params')
     amcl = PythonExpression(["'", LaunchConfiguration('localizer'), "' == 'amcl'"])
+    orin = IfCondition(PythonExpression(["'", LaunchConfiguration('nav_stack'), "' == 'orin'"]))
     mapless = os.path.join(get_package_share_directory('dr_nav2_mapless'), 'launch', 'dr_nav2_mapless.launch.py')
     return LaunchDescription([
         DeclareLaunchArgument('params'),
         DeclareLaunchArgument('localizer', default_value='amcl'),
+        DeclareLaunchArgument('nav_stack', default_value='jetson'),
+        # every node the include starts below; not scoped, so it holds there
+        SetRemap('cmd_vel', '/rpp/cmd_vel', condition=orin),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(mapless),
             launch_arguments=[
