@@ -107,7 +107,9 @@ local_costmap:
         topics: [/sonar/front, /sonar/rear]
         input_sensor_type: VARIABLE
         clear_on_max_reading: true
-        no_readings_timeout: 1.0
+        # 0: off. Perception's waits for the sonars before Nav2 starts; here they come only once
+        # shadow_link runs, and shadow_nav.py already stops MPPI driving without them
+        no_readings_timeout: 0.0
         clear_threshold: 0.2
         mark_threshold: 0.8
         inflate_cone: 1.0

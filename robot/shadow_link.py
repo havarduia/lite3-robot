@@ -33,7 +33,6 @@ import sys
 import time
 
 from .lio_relay import ORIN, yaw_of
-from .lite3 import ODOM_TOPIC, take_ready
 from .locate import LOCALIZED, TOPIC as LOCALIZED_TOPIC
 
 ORIN_PORT = 8044
@@ -91,6 +90,8 @@ def main(drive=False):
     from sensor_msgs.msg import PointCloud2, Range
     from rclpy.qos import qos_profile_sensor_data
     from std_msgs.msg import Float64MultiArray
+
+    from .lite3 import ODOM_TOPIC, take_ready      # imports rclpy: not for check()
 
     rclpy.init()
     node = rclpy.create_node('shadow_link')

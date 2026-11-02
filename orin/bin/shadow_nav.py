@@ -128,7 +128,7 @@ def main(log_path, drive=False):
         x, y, yaw = base_of((p.x, p.y, p.z), (o.x, o.y, o.z, o.w))
         now = (t, x, y, yaw)
         vx, vy, wz = twist(s['prev'], now) if s['prev'] and 0 < t - s['prev'][0] < 1.0 else (0.0, 0.0, 0.0)
-        s['prev'], s['base'] = now, (x, y, yaw)
+        s['prev'], s['base'], s['stamp'] = now, (x, y, yaw), m.header.stamp
         poses.append((time.time(), x, y, yaw))
         tf = TransformStamped()
         tf.header.stamp, tf.header.frame_id, tf.child_frame_id = m.header.stamp, 'odom', 'base_link'
@@ -224,8 +224,12 @@ def main(log_path, drive=False):
         s['depth_at'] = time.monotonic()
 
     def sonar(i, rng, lo, hi, fov):
+        if 'stamp' not in s:
+            return
         r = Range()
-        r.header.stamp, r.header.frame_id = node.get_clock().now().to_msg(), 'sonar_' + SONARS[i][0]
+        # the newest odom -> base_link stamp: "now" is ahead of it, and the range layer then waits
+        # out its transform tolerance on every reading, which stalled the costmap (mppi_drive3)
+        r.header.stamp, r.header.frame_id = s['stamp'], 'sonar_' + SONARS[i][0]
         r.radiation_type, r.field_of_view = Range.ULTRASOUND, fov
         r.min_range, r.max_range, r.range = lo, hi, rng
         sonar_pubs[i].publish(r)
