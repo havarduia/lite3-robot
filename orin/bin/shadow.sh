@@ -4,17 +4,17 @@
 # (robot/shadow_link.py on the Jetson). Its commands go to /shadow/cmd_vel and a log, never
 # to the robot. Needs FAST-LIO2 running (lio_live). Log: ~/shadow/NAME.csv; nodes' output
 # in ~/shadow/NAME.log. Stopped with TERM: a script's background jobs ignore SIGINT.
-# drive (step 4): MPPI's vx_max 0.3, the clamp perception's shadow_link drive puts on it, so its
-# rollouts are what he will do, and only then do its commands go back to perception (shadow_nav.py).
+# drive (step 4): only then do MPPI's commands go back to perception (shadow_nav.py), and only while
+# perception's camera and sonars keep coming (step 5).
 # Whether they drive is chosen on perception (~/nav_stack).
 PIDS=/tmp/shadow.pids
 case "$1" in
 start)
     name=${2:?usage: shadow.sh start NAME [drive]}
-    slow="" drive=""
+    drive=""
     if [ "$3" = drive ]; then
         [ "${SHADOW_DOMAIN:-42}" = 42 ] || { echo "drive is for the live domain 42, not a replay"; exit 1; }
-        slow="-p FollowPath.vx_max:=0.3" drive=drive
+        drive=drive
     fi
     [ -s $PIDS ] && { echo "already running: $PIDS"; exit 1; }
     source /opt/ros/humble/setup.bash
@@ -24,16 +24,18 @@ start)
     log=~/shadow/$name.log
     cd ~/bin
     # CMU's terrainAnalysis parameters, with the two the bridge showed wrong for our lidar height,
-    # and his height: above 0.7 m he walks under it (CMU's 1.5 m made overhangs in doors obstacles)
+    # and his height: above 0.7 m he walks under it (CMU's 1.5 m made overhangs in doors obstacles).
+    # clearDyObs: points within noDecayDis never fade, so standing beside a chair grew a 1.4 m patch
+    # he could walk through (strip_frames, 2026-11-02); this clears what later scans see through
     ta=$(sed -n 's/.*name="\([^"]*\)" value="\([^"]*\)".*/-p \1:=\2/p' \
          ~/cmu_ws/src/terrain_analysis/launch/terrain_analysis.launch)
     {
         ~/cmu_ws/install/lite3_terrain/lib/lite3_terrain/terrain_level >> $log 2>&1 & echo $!
         ~/cmu_ws/install/terrain_analysis/lib/terrain_analysis/terrainAnalysis --ros-args $ta \
-            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 >> $log 2>&1 & echo $!
+            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 -p clearDyObs:=true >> $log 2>&1 & echo $!
         python3 shadow_nav.py ~/shadow/$name.csv $drive >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_controller/controller_server --ros-args --params-file shadow_nav2.yaml \
-            $slow -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!
+            -r cmd_vel:=/shadow/cmd_vel >> $log 2>&1 & echo $!
         /opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager --ros-args \
             -r __node:=lifecycle_manager_shadow --params-file shadow_nav2.yaml >> $log 2>&1 & echo $!
     } > $PIDS

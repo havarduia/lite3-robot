@@ -79,7 +79,7 @@ local_costmap:
       # 0, not the Jetson's 0.05: the doors leave 5-20 cm beside the padded footprint, and every
       # MPPI sample clipped a frame (big_walk 2026-10-28). The footprint is the body; the legs fit in it.
       footprint_padding: 0.0
-      plugins: [terrain_layer, inflation_layer]
+      plugins: [terrain_layer, depth_layer, range_layer, inflation_layer]
       # /terrain_h is terrainAnalysis's map with z = height above the local ground
       # (shadow_nav.py): above 0.15 m marks, everything clears the way to it.
       terrain_layer:
@@ -91,6 +91,26 @@ local_costmap:
         ground: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: false,
                  clearing: true, min_obstacle_height: -1.0, max_obstacle_height: 2.0,
                  raytrace_max_range: 4.0}
+      # Perception's depth camera: the voxels its STVL keeps (15 s memory, frustum clearing), as a
+      # grid around him from shadow_nav.py; each grid replaces the last. Max with the layers below.
+      depth_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: /depth_grid
+        map_subscribe_transient_local: true
+        subscribe_to_updates: false
+        use_maximum: true
+        transform_tolerance: 0.3
+      # The sonars, as perception's range_layer (env/nav2-mapless-lite3.patch): ranges from
+      # robot/sonar_range.py, relayed by shadow_link.py and shadow_nav.py.
+      range_layer:
+        plugin: nav2_costmap_2d::RangeSensorLayer
+        topics: [/sonar/front, /sonar/rear]
+        input_sensor_type: VARIABLE
+        clear_on_max_reading: true
+        no_readings_timeout: 1.0
+        clear_threshold: 0.2
+        mark_threshold: 0.8
+        inflate_cone: 1.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         inflation_radius: 0.45

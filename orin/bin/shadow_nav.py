@@ -8,6 +8,11 @@ odom by its own pose of that moment and hands it to the Orin's controller_server
 where robot/shadow_link.py drive publishes it (step 4). Never `drive` in a bag replay: a ROS domain
 does not keep UDP apart, and a replay's MPPI would reach a live perception.
 
+Step 5: perception's depth camera (the voxels its costmap keeps) and sonars come on the same port;
+the camera goes out as an occupancy grid around him (/depth_grid, a StaticLayer in shadow_nav2.yaml:
+each grid replaces the last, so perception's memory and clearing hold), the sonars as Range. With
+`drive`, MPPI's command goes back only while both are fresh (SENSORS_STALE_S): no camera, no driving.
+
 Also the 2D frame Nav2 needs: odom -> base_link (planar: x, y, yaw) and /odom with speeds.
 /terrain_h, what the costmap marks, comes from orin/lite3_terrain's terrain_level.
 
@@ -36,6 +41,26 @@ ROUTE_STALE_S = 5.0         # no route for this long: the Jetson's goal is over,
 CMD_STALE_S = 0.5           # an RPP command older than this is logged as none
 POSES_KEPT = 200            # 20 s of own poses, to find where he was when the Jetson placed him
 MATCH_S = 0.3               # own pose at most this far from that moment, or the route is dropped
+DEPTH = struct.Struct('<cd3d')      # D, when, perception's base_link in its odom; float32 (x, y) around base_link
+SONAR = struct.Struct('<cB4f')      # S, 0 front 1 rear, range, min, max, field of view
+SONARS = (('front', 0.23, 0.0), ('rear', -0.31, math.pi))     # robot/sonar_range.py: x on base_link, yaw
+GRID_RES = 0.05             # the costmap's
+GRID_HALF = 3.0             # m: the costmap is 6 x 6
+VOXEL = 0.1                 # perception's STVL voxel: each marks the cells it covers
+SENSORS_STALE_S = 1.0       # camera 5 Hz, sonars 20 Hz
+
+
+def depth_cells(around, pts):
+    """Voxel centres in odom (n x 2) -> (origin x, y, size, occupancy) of a grid centred near `around`."""
+    n = int(round(2 * GRID_HALF / GRID_RES))
+    ox = math.floor((around[0] - GRID_HALF) / GRID_RES) * GRID_RES
+    oy = math.floor((around[1] - GRID_HALF) / GRID_RES) * GRID_RES
+    g = np.zeros((n, n), np.int8)
+    k = int(round(VOXEL / GRID_RES / 2))
+    for x, y in pts:
+        i, j = int((x - ox) / GRID_RES), int((y - oy) / GRID_RES)
+        g[max(j - k, 0):max(j + k, 0), max(i - k, 0):max(i + k, 0)] = 100
+    return ox, oy, n, g
 
 
 def base_of(p, q):
@@ -63,7 +88,10 @@ def main(log_path, drive=False):
     from action_msgs.msg import GoalStatus
     from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
     from nav2_msgs.action import FollowPath
-    from nav_msgs.msg import Odometry, Path
+    from nav_msgs.msg import OccupancyGrid, Odometry, Path
+    from rclpy.qos import DurabilityPolicy, QoSProfile
+    from sensor_msgs.msg import Range
+    from tf2_ros import StaticTransformBroadcaster
     from rclpy.action import ActionClient
     from tf2_ros import TransformBroadcaster
 
@@ -72,8 +100,22 @@ def main(log_path, drive=False):
     odom_pub = node.create_publisher(Odometry, '/odom', 10)
     path_pub = node.create_publisher(Path, '/shadow/route', 2)
     tf_pub = TransformBroadcaster(node)
+    latched = QoSProfile(depth=1)
+    latched.durability = DurabilityPolicy.TRANSIENT_LOCAL      # the StaticLayer subscribes so
+    grid_pub = node.create_publisher(OccupancyGrid, '/depth_grid', latched)
+    sonar_pubs = [node.create_publisher(Range, '/sonar/' + n, 10) for n, _, _ in SONARS]
+    static_tf = StaticTransformBroadcaster(node)
+    tfs = []
+    for name, x, yaw in SONARS:
+        t = TransformStamped()
+        t.header.frame_id, t.child_frame_id = 'base_link', 'sonar_' + name
+        t.transform.translation.x = x
+        t.transform.rotation.z, t.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+        tfs.append(t)
+    static_tf.sendTransform(tfs)
     follow = ActionClient(node, FollowPath, 'follow_path')
-    s = {'base': None, 'prev': None, 'rpp': None, 'route_at': None, 'goal': None, 'sent': 0}
+    s = {'base': None, 'prev': None, 'rpp': None, 'route_at': None, 'goal': None, 'sent': 0,
+         'depth_at': -1e9, 'sonar_at': [-1e9, -1e9], 'blind': False}
     poses = collections.deque(maxlen=POSES_KEPT)       # (wall clock, x, y, yaw) in odom
     lock = threading.Lock()
     out = open(log_path, 'w', newline='', buffering=1)     # a line at a time: readable during a run
@@ -103,7 +145,13 @@ def main(log_path, drive=False):
     back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def mppi(c):
-        if drive:
+        now = time.monotonic()
+        blind = now - s['depth_at'] > SENSORS_STALE_S or now - min(s['sonar_at']) > SENSORS_STALE_S
+        if blind != s['blind']:
+            s['blind'] = blind
+            node.get_logger().warn('camera or sonars stopped coming: MPPI does not drive' if blind
+                                   else 'camera and sonars coming')
+        if drive and not blind:
             back.sendto(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z), (JETSON, DRIVE_PORT))
         with lock:
             rpp = s['rpp'] if s['rpp'] and time.monotonic() - s['rpp'][0] < CMD_STALE_S else None
@@ -149,9 +197,48 @@ def main(log_path, drive=False):
             if data[:1] == b'V' and len(data) == CMD.size:
                 with lock:
                     s['rpp'] = (time.monotonic(),) + CMD.unpack(data)[1:]
+            elif data[:1] == b'D' and len(data) >= DEPTH.size and (len(data) - DEPTH.size) % 8 == 0:
+                when = DEPTH.unpack(data[:DEPTH.size])[1]
+                s['depth'] = (when, np.frombuffer(data, np.float32, offset=DEPTH.size).reshape(-1, 2))
+            elif data[:1] == b'S' and len(data) == SONAR.size:
+                _, i, *r = SONAR.unpack(data)
+                if i in (0, 1):
+                    s['sonar%d' % i] = tuple(r)
             elif data[:1] == b'T' and len(data) > ROUTE.size and (len(data) - ROUTE.size) % 12 == 0:
                 s['route_at'] = time.monotonic()
                 s['route'] = unpack_route(data)
+
+    def depth(when, rel):
+        then = min(poses, key=lambda p: abs(p[0] - when), default=None)
+        if then is None or abs(then[0] - when) > MATCH_S:
+            return
+        pts = [join(then[1:], (float(x), float(y), 0.0))[:2] for x, y in rel]
+        ox, oy, n, g = depth_cells(then[1:], pts)
+        m = OccupancyGrid()
+        m.header.stamp, m.header.frame_id = node.get_clock().now().to_msg(), 'odom'
+        m.info.resolution, m.info.width, m.info.height = GRID_RES, n, n
+        m.info.origin.position.x, m.info.origin.position.y = ox, oy
+        m.info.origin.orientation.w = 1.0
+        m.data = g.ravel().tolist()
+        grid_pub.publish(m)
+        s['depth_at'] = time.monotonic()
+
+    def sonar(i, rng, lo, hi, fov):
+        r = Range()
+        r.header.stamp, r.header.frame_id = node.get_clock().now().to_msg(), 'sonar_' + SONARS[i][0]
+        r.radiation_type, r.field_of_view = Range.ULTRASOUND, fov
+        r.min_range, r.max_range, r.range = lo, hi, rng
+        sonar_pubs[i].publish(r)
+        s['sonar_at'][i] = time.monotonic()
+
+    def take_sensors():
+        d = s.pop('depth', None)
+        if d is not None:
+            depth(*d)
+        for i in (0, 1):
+            r = s.pop('sonar%d' % i, None)
+            if r is not None:
+                sonar(i, *r)
 
     def take_route():
         r = s.pop('route', None)
@@ -161,6 +248,7 @@ def main(log_path, drive=False):
     node.create_subscription(Odometry, '/state_estimation', odom, 20)
     node.create_subscription(Twist, '/shadow/cmd_vel', mppi, 10)
     node.create_timer(0.1, take_route)      # the ROS calls stay on the spinning thread
+    node.create_timer(0.05, take_sensors)
     node.create_timer(1.0, watch)
     threading.Thread(target=read, daemon=True).start()
     try:
@@ -188,6 +276,12 @@ def check():
     pts = [(0.0, 0.0, 0.0), (0.5, -0.25, 1.5)]
     data = ROUTE.pack(b'T', 12.5, 1.0, 2.0, 0.5) + np.array(pts, np.float32).tobytes()
     assert unpack_route(data) == (12.5, (1.0, 2.0, 0.5), pts), unpack_route(data)
+    # a voxel 1 m ahead of him (at (1, 2), facing +y) marks the 2 x 2 cells around (1, 3)
+    ox, oy, n, g = depth_cells((1.0, 2.0), [(1.0, 3.0)])
+    assert n == 120 and g.sum() == 4 * 100, (n, g.sum())
+    j, i = np.nonzero(g)
+    assert abs(ox + (i.mean() + 0.5) * GRID_RES - 1.0) < 0.03 and abs(oy + (j.mean() + 0.5) * GRID_RES - 3.0) < 0.03
+    assert depth_cells((0.0, 0.0), [(9.0, 9.0)])[3].sum() == 0      # off the grid: nothing
     print('shadow_nav ok')
 
 

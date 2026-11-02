@@ -124,16 +124,23 @@ over, but RPP and the recoveries publish on `/rpp/cmd_vel`, which drives nothing
 Nav2's process group, sends the route to the Orin and publishes MPPI's answer
 on `/cmd_vel`:
 
-- clamped to -0.2..0.3 m/s and ±0.8 rad/s, no strafe;
+- clamped to -0.2..0.5 m/s (RPP's limits) and ±0.8 rad/s, no strafe;
 - only while RPP or a recovery is speaking (RPP at 5 Hz while it follows a route,
   late under load), so a cancel, an estop or a finished goal ends MPPI's driving
-  within 0.6 s (18 cm at 0.3 m/s); during a recovery MPPI keeps the route it had;
+  within 0.6 s (30 cm at 0.5 m/s); during a recovery MPPI keeps the route it had;
 - a stop when MPPI has said nothing for 0.3 s, and on SIGTERM.
 
-On the Orin: `~/bin/shadow.sh start NAME drive` (MPPI's own `vx_max` 0.3, so its
-rollouts match the clamp). Mapless Nav2 refuses to start with `orin`. Not yet in
-MPPI's costmap: the depth camera and the sonars (step 5 of the migration), so RPP's
-"collision ahead" stops do not happen with `orin`; only the lidar sees obstacles.
+On the Orin: `~/bin/shadow.sh start NAME drive`. Mapless Nav2 refuses to start with `orin`.
+
+MPPI's costmap has the lidar (CMU terrainAnalysis, `clearDyObs` on) and, from
+perception, the depth camera and both sonars: `shadow_link.py` sends the voxels
+perception's own STVL keeps (`/local_costmap/voxel_grid`, 5 Hz, 0.05–0.7 m above the
+floor, its 15 s memory and clearing) placed around base_link, and the sonar ranges.
+On the Orin they become `/depth_grid` (a StaticLayer: each grid replaces the last)
+and `/sonar/front`, `/sonar/rear` (a RangeSensorLayer as perception's). If either
+stops for 1 s, the Orin stops sending MPPI's commands, so perception publishes zeros.
+The lidar barely sees low things close beside him; the camera's 15 s memory covers
+what he has just passed in front of.
 
 ## Reading the costmap and choosing goals
 
