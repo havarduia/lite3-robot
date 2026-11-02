@@ -9,11 +9,13 @@ FLOOR="${1:?usage: start_nav2_map.sh <floor>}"
 # localizer, robot/cloud_locate.py; .planning/plans/cloud-localization.md). From the panel:
 # LOCALIZER=cloud python3 -m robot.hmi
 LOCALIZER="${LOCALIZER:-amcl}"
-# Who drives (step 4 of ~/nav_stack_migration.md): jetson = RPP here, as always; orin = the
-# Orin's MPPI (orin/bin/shadow.sh start NAME drive) through robot/shadow_link.py drive.
-# A file, so the panel needs no restart: echo orin > ~/nav_stack, then Nav2 off and on.
+# Who drives (step 5b of ~/nav_stack_migration.md): jetson = Nav2 here with RPP, as before; orin =
+# Nav2 Humble on the Orin (orin/bin/nav.sh, Smac + MPPI + collision monitor) through robot/orin_nav.py,
+# with the cloud localizer. A file, so the panel needs no restart: echo orin > ~/nav_stack, then
+# Nav2 off and on. ORIN_NAV_DRY=1: everything runs but nothing reaches /cmd_vel (a bench check).
 NAV_STACK="${NAV_STACK:-$(cat "$HOME/nav_stack" 2>/dev/null || echo jetson)}"
 case "$NAV_STACK" in jetson|orin) ;; *) echo "NAV_STACK must be jetson or orin, not '$NAV_STACK'" >&2; exit 1 ;; esac
+[ "$NAV_STACK" = orin ] && LOCALIZER=cloud      # the Orin's map -> odom is its own fixes
 MAP="$HOME/lite3_maps/$FLOOR/map.yaml"
 [ -f "$MAP" ] || { echo "no map for floor '$FLOOR' ($MAP)" >&2; exit 1; }
 # Map mode's parameters are the mapless ones with the map added, made afresh
@@ -34,7 +36,17 @@ else
     python3 -m robot.lio_relay map ""       # the Orin's localizer lets go: AMCL owns map -> odom
     python3 -m robot.locate "$FLOOR" &
 fi
-[ "$NAV_STACK" = orin ] && python3 -m robot.shadow_link drive &
+if [ "$NAV_STACK" = orin ]; then
+    ORIN_SSH="ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=2 -o ServerAliveCountMax=3 lite3@192.168.1.5"
+    # the floor's map, as this Nav2 has it, to the Orin's
+    $ORIN_SSH "mkdir -p lite3_maps/$FLOOR" \
+        && scp -q -o BatchMode=yes "$HOME/lite3_maps/$FLOOR/map.yaml" "$HOME/lite3_maps/$FLOOR/map.pgm" \
+               "lite3@192.168.1.5:lite3_maps/$FLOOR/" \
+        || { echo "could not copy the map to the Orin" >&2; exit 1; }
+    # runs while this ssh does: nav_stop() ends it with the group, and the Orin's stops (orin/bin/nav.sh)
+    sleep infinity | $ORIN_SSH "~/bin/nav.sh run $FLOOR" &
+    python3 -m robot.orin_nav ${ORIN_NAV_DRY:+dry} &
+fi
 for _ in $(seq 100); do [ -e /tmp/sonar_range.ready ] && break; sleep 0.1; done
 echo "nav_stack $NAV_STACK"
 exec ros2 launch "$ENV_DIR/nav2_map.launch.py" params:="$PARAMS" localizer:="$LOCALIZER" nav_stack:="$NAV_STACK"

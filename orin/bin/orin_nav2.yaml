@@ -1,0 +1,234 @@
+# Nav2 Humble on the Orin, driving (nav_stack_migration.md, step 5b), started by nav.sh.
+# bt_navigator (Humble's default tree: replan once a second, recoveries) -> planner_server
+# (Smac 2D on the floor map) -> controller_server (MPPI, as shadow_nav2.yaml tuned it on the walks)
+# -> collision_monitor -> /cmd_vel, which orin_nav.py sends to perception.
+# The map comes from perception (env/start_nav2_map.sh copies it); map -> odom from orin_nav.py.
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom
+    transform_tolerance: 0.3
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0
+    planner_plugins: [GridBased]
+    # Smac 2D, not NavFn: cost_travel_multiplier keeps routes off walls and through the middle of
+    # doors; MPPI stalled where NavFn's route cut a door's corner (mppi_bridge1, 2026-11-02)
+    GridBased:
+      plugin: nav2_smac_planner/SmacPlanner2D
+      tolerance: 0.15
+      downsample_costmap: false
+      downsampling_factor: 1
+      allow_unknown: false
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 3.0
+      cost_travel_multiplier: 2.0
+      use_final_approach_orientation: false
+      smoother: {max_iterations: 1000, w_smooth: 0.3, w_data: 0.2, tolerance: 1.0e-10}
+
+controller_server:
+  ros__parameters:
+    controller_frequency: 10.0
+    odom_topic: /odom
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    # MPPI fails a cycle when every sample touches something (a bad door approach); it retries,
+    # and only a half second of that ends the goal's FollowPath for the tree's recoveries
+    failure_tolerance: 0.5
+    progress_checker_plugin: progress_checker
+    goal_checker_plugins: [general_goal_checker]
+    controller_plugins: [FollowPath]
+    progress_checker:
+      plugin: nav2_controller::SimpleProgressChecker
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+    general_goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+      stateful: true
+    # shadow_nav2.yaml's, but wz_std 0.4 -> 0.8 and batch 1000 -> 2000: at the stalls on the bridge walk
+    # no sample turned enough to get round a door frame (56 optimizer fails); the Orin kept its 10 Hz at 1000
+    FollowPath:
+      plugin: nav2_mppi_controller::MPPIController
+      time_steps: 30
+      model_dt: 0.1
+      batch_size: 2000
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.8
+      vx_max: 0.5
+      vx_min: -0.2
+      vy_max: 0.0
+      wz_max: 0.8
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.2
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: DiffDrive
+      visualize: false
+      reset_period: 1.0
+      regenerate_noises: false
+      critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic, PathAlignCritic,
+                PathFollowCritic, PathAngleCritic, PreferForwardCritic]
+      ConstraintCritic: {enabled: true, cost_power: 1, cost_weight: 4.0}
+      GoalCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 1.4}
+      GoalAngleCritic: {enabled: true, cost_power: 1, cost_weight: 3.0, threshold_to_consider: 0.5}
+      PreferForwardCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 0.5}
+      CostCritic: {enabled: true, cost_power: 1, cost_weight: 3.81, critical_cost: 300.0,
+                   consider_footprint: true, collision_cost: 1000000.0, near_goal_distance: 1.0,
+                   trajectory_point_step: 2}
+      PathAlignCritic: {enabled: true, cost_power: 1, cost_weight: 14.0, max_path_occupancy_ratio: 0.05,
+                        trajectory_point_step: 4, threshold_to_consider: 0.5, offset_from_furthest: 20,
+                        use_path_orientations: false}
+      PathFollowCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, offset_from_furthest: 5,
+                         threshold_to_consider: 1.4}
+      PathAngleCritic: {enabled: true, cost_power: 1, cost_weight: 2.0, offset_from_furthest: 4,
+                        threshold_to_consider: 0.5, max_angle_to_furthest: 1.0, mode: 0}
+
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: [spin, backup, wait]
+    spin: {plugin: nav2_behaviors/Spin}
+    backup: {plugin: nav2_behaviors/BackUp}
+    wait: {plugin: nav2_behaviors/Wait}
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_tolerance: 0.3
+    simulate_ahead_time: 2.0
+    # as perception's recoveries_server
+    max_rotational_vel: 0.8
+    min_rotational_vel: 0.3
+    rotational_acc_lim: 1.0
+
+# Last word on every command: stop for what is right in front of him, slow for what is near ahead.
+# Ahead only and the body's width: the door frames pass 5-20 cm beside him, and Humble's
+# zones do not look at which way he is going (a zone behind would stop him walking away from a wall).
+collision_monitor:
+  ros__parameters:
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: cmd_vel_nav
+    cmd_vel_out_topic: cmd_vel
+    transform_tolerance: 0.3
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 1.0
+    polygons: [PolygonStop, PolygonSlow]
+    PolygonStop:
+      type: polygon
+      points: [0.42, 0.2, 0.42, -0.2, 0.3, -0.2, 0.3, 0.2]
+      action_type: stop
+      max_points: 2
+      visualize: false
+    PolygonSlow:
+      type: polygon
+      points: [0.75, 0.2, 0.75, -0.2, 0.42, -0.2, 0.42, 0.2]
+      action_type: slowdown
+      slowdown_ratio: 0.5
+      max_points: 2
+      visualize: false
+    observation_sources: [terrain, depth, sonar_front]
+    # /terrain_h: z is the height over the local ground (shadow_nav2.yaml's terrain_layer)
+    terrain: {type: pointcloud, topic: /terrain_h, min_height: 0.15, max_height: 0.7}
+    depth: {type: pointcloud, topic: /depth_points, min_height: 0.1, max_height: 0.7}
+    sonar_front: {type: range, topic: /sonar/front, obstacles_angle: 0.05}
+
+map_server:
+  ros__parameters:
+    yaml_filename: ""       # nav.sh gives the floor's
+
+# The floor map with what the lidar sees; no camera or sonars (perception's lesson: a mark nobody saw
+# on the lidar closed open doors, env/nav2_map_params.py). The static layer's grey is perception's too.
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 0.5
+      global_frame: map
+      robot_base_frame: base_link
+      rolling_window: false
+      resolution: 0.05
+      transform_tolerance: 0.5
+      track_unknown_space: false
+      unknown_cost_value: 50
+      footprint: "[[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]]"
+      footprint_padding: 0.0
+      plugins: [static_layer, terrain_layer, inflation_layer]
+      static_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_subscribe_transient_local: true
+      terrain_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: obstacles ground
+        obstacles: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: true,
+                    clearing: false, min_obstacle_height: 0.15, max_obstacle_height: 2.0,
+                    obstacle_max_range: 3.5}
+        ground: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: false,
+                 clearing: true, min_obstacle_height: -1.0, max_obstacle_height: 2.0,
+                 raytrace_max_range: 4.0}
+      # wider and softer than the local one, for Smac's cost_travel_multiplier: the middle of a 0.8 m
+      # door still costs less than beside its frame (138 against 217)
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.7
+        cost_scaling_factor: 3.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      transform_tolerance: 0.3
+      footprint: "[[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]]"
+      footprint_padding: 0.0
+      plugins: [terrain_layer, depth_layer, range_layer, inflation_layer]
+      terrain_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: obstacles ground
+        obstacles: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: true,
+                    clearing: false, min_obstacle_height: 0.15, max_obstacle_height: 2.0,
+                    obstacle_max_range: 3.5}
+        ground: {topic: /terrain_h, data_type: PointCloud2, sensor_frame: base_link, marking: false,
+                 clearing: true, min_obstacle_height: -1.0, max_obstacle_height: 2.0,
+                 raytrace_max_range: 4.0}
+      depth_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: /depth_grid
+        map_subscribe_transient_local: true
+        subscribe_to_updates: false
+        use_maximum: true
+        transform_tolerance: 0.3
+      range_layer:
+        plugin: nav2_costmap_2d::RangeSensorLayer
+        topics: [/sonar/front, /sonar/rear]
+        input_sensor_type: VARIABLE
+        clear_on_max_reading: true
+        no_readings_timeout: 0.0
+        clear_threshold: 0.2
+        mark_threshold: 0.8
+        inflate_cone: 1.0
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.45
+        cost_scaling_factor: 8.0
+
+lifecycle_manager_orin_nav:
+  ros__parameters:
+    autostart: true
+    node_names: [map_server, planner_server, controller_server, behavior_server, bt_navigator, collision_monitor]
+    bond_timeout: 0.0

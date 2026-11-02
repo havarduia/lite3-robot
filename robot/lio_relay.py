@@ -53,6 +53,7 @@ SCANS = {b'S': '/scan', b'W': '/scan_walls'}
 FIX = struct.Struct('<cdd4d3dB3dB')     # L, sent (Orin clock), stamp, x y z yaw, fitness, walls, rmse, weak bits, var x y yaw, state
 PLACE = struct.Struct('<c3d')           # I, base_link x, y, yaw on the map
 CLOUD_PORT = 8043                       # where cloud_locate.py listens on the Orin, for 'I' and 'M' (the cloud's path)
+FIX_LOCAL_PORT = 8046                   # the fixes again, to the Orin's own Nav2 (orin/bin/orin_nav.py: its map -> odom)
 FIX_AXES = ('x', 'y', 'z', 'yaw')
 CLOUD_FIX_TOPIC = '/cloud_fix'       # the fixes as map -> odom, for robot/locate.py (CloudFix.take's row)
 MAP_TF_EVERY = 5                    # map -> odom with every 5th leg message: 10 Hz

@@ -21,7 +21,7 @@ from .protocol import Lite3Error
 # group: killing by name misses its children, or reaches the
 # static_transform_publisher the services use. docs/navigation.md.
 NAV_MARKERS = ('dr_nav2_mapless', 'bt_navigator', 'planner_server',
-               'controller_server', 'robot.sonar_range')
+               'controller_server', 'robot.sonar_range', 'robot.orin_nav')
 # Never kill a group holding one of these. Executables, not words: the
 # launch line itself says launch_realsense:=false.
 NAV_NEVER = ('jetson2motion', 'transfer_ros2', 'start_transfer',
@@ -152,7 +152,8 @@ class Nav:
 
     @property
     def nav_running(self):
-        return subprocess.run(['pgrep', '-f', 'bt_navigator'],
+        # robot.orin_nav: the Orin's Nav2 drives, and its goals come through that (NAV_STACK=orin)
+        return subprocess.run(['pgrep', '-f', r'bt_navigator|robot\.orin_nav'],
                               capture_output=True).returncode == 0
 
     @staticmethod

@@ -26,12 +26,12 @@ try:
     from . import cloudreg
     from .lio_relay import (CLOUD_PORT as COMMAND_PORT, FIX, FIX_NO_LIO as NO_LIO, FIX_NO_MAP as NO_MAP,
                             FIX_OK as OK, FIX_REFUSED as REFUSED, FIX_SEARCHING as SEARCHING, FIX_STATES as STATES,
-                            FIX_TILTED as TILTED, MOUNT_XYZ, PLACE, ROBOT, pack_fix, unpack_fix)
+                            FIX_TILTED as TILTED, FIX_LOCAL_PORT, MOUNT_XYZ, PLACE, ROBOT, pack_fix, unpack_fix)
 except ImportError:                             # on the Orin: flat in ~/bin
     import cloudreg
     from lio_relay import (CLOUD_PORT as COMMAND_PORT, FIX, FIX_NO_LIO as NO_LIO, FIX_NO_MAP as NO_MAP,
                            FIX_OK as OK, FIX_REFUSED as REFUSED, FIX_SEARCHING as SEARCHING, FIX_STATES as STATES,
-                           FIX_TILTED as TILTED, MOUNT_XYZ, PLACE, ROBOT, pack_fix, unpack_fix)
+                           FIX_TILTED as TILTED, FIX_LOCAL_PORT, MOUNT_XYZ, PLACE, ROBOT, pack_fix, unpack_fix)
 
 FIX_S = 1.0             # a fix this often; FAST-LIO2 carries the pose in between
 SMOOTH = 0.3            # a tracked fix moves the sent correction this far towards it: no 5 cm shake a second
@@ -268,6 +268,7 @@ def main():
         if took > 2.0:                                  # a search: worth a line
             print('cloud_locate: a fix took %.1f s (%s)' % (took, STATES[unpack_fix(data)['state']]), flush=True)
         out.sendto(data, ROBOT)
+        out.sendto(data, ("127.0.0.1", FIX_LOCAL_PORT))     # the Orin's Nav2 (orin_nav.py)
     node.create_timer(FIX_S, tick)
     rclpy.spin(node)
 
