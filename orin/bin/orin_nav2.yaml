@@ -196,7 +196,9 @@ local_costmap:
       transform_tolerance: 0.3
       footprint: "[[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]]"
       footprint_padding: 0.0
-      plugins: [terrain_layer, depth_layer, range_layer, inflation_layer]
+      # No sonar layer (2026-11-04): a ~30 deg cone draws walls too wide in doorways; the sonars
+      # only stop or slow him in the collision monitor, for the glass the lidar and camera see through.
+      plugins: [terrain_layer, depth_layer, inflation_layer]
       terrain_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         observation_sources: obstacles ground
@@ -213,15 +215,6 @@ local_costmap:
         subscribe_to_updates: false
         use_maximum: true
         transform_tolerance: 0.3
-      range_layer:
-        plugin: nav2_costmap_2d::RangeSensorLayer
-        topics: [/sonar/front, /sonar/rear]
-        input_sensor_type: VARIABLE
-        clear_on_max_reading: true
-        no_readings_timeout: 0.0
-        clear_threshold: 0.2
-        mark_threshold: 0.8
-        inflate_cone: 1.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         inflation_radius: 0.45

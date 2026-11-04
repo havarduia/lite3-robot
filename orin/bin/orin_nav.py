@@ -43,6 +43,11 @@ MAP_TF_S = 0.1
 MAP_TF_AHEAD_S = 0.3                # map -> odom stamped this far past the newest odom, as AMCL postdates
 FIX_MATCH_S = 0.05                  # the own pose this near the fix's stamp (FAST-LIO2 is 10 Hz)
 DEPTH_Z = 0.3                       # m: the camera's voxels as points this high, for the collision monitor
+# m: only camera voxels ahead of his nose (0.3 m, plus half of STVL's 0.1 m voxel) count. The camera is
+# for the lidar's blind spot in front of him; beside and under him is the lidar's job, and the camera can't
+# see under him anyway: glare on the bridge floor (bridge_nov_4_2) showed up 0.5 m ahead, he stepped onto
+# it and stood stuck ~20 s while it stayed in the camera's memory.
+NOSE_X = 0.35
 
 
 def map_odom(fix, poses):
@@ -53,6 +58,12 @@ def map_odom(fix, poses):
         return None
     x, y, _, yaw = fix['pose']
     return join((x, y, yaw), inv(then[1:]))
+
+
+def ahead(rel):
+    """Camera voxel centres around base_link (n x 2), only those ahead of his nose."""
+    rel = np.asarray(rel, np.float32).reshape(-1, 2)
+    return rel[rel[:, 0] > NOSE_X]
 
 
 def thin(xy):
@@ -218,7 +229,7 @@ def main():
         then = min(by_clock, key=lambda p: abs(p[0] - when), default=None)
         if then is None or abs(then[0] - when) > MATCH_S:
             return
-        pts = [join(then[1:], (float(x), float(y), 0.0))[:2] for x, y in rel]
+        pts = [join(then[1:], (float(x), float(y), 0.0))[:2] for x, y in ahead(rel)]
         ox, oy, n, g = depth_cells(then[1:], pts)
         stamp = node.get_clock().now().to_msg()
         m = OccupancyGrid()
@@ -317,6 +328,10 @@ def check():
     f['stamp'] = 10.5
     assert map_odom(f, poses) is None            # no own pose of that moment
     assert len(thin([(i * 0.05, 0.0) for i in range(41)])) == 21
+    # under him, at his nose, beside and behind him: dropped; ahead of the nose: kept
+    kept = ahead([(0.0, 0.0), (0.33, 0.1), (0.0, 0.6), (-1.0, 0.0), (0.4, 0.0), (1.0, 1.0)])
+    assert np.allclose(kept, [[0.4, 0.0], [1.0, 1.0]]), kept.tolist()
+    assert ahead(np.zeros((0, 2), np.float32)).shape == (0, 2)
     print('orin_nav ok')
 
 

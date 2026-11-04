@@ -143,14 +143,18 @@ status (or 20 s without the Orin taking it, which covers its Nav2 still starting
 `ORIN_NAV_DRY=1` runs everything without publishing `/cmd_vel`, for a check at the bench.
 
 The Orin's local costmap has the lidar (CMU terrainAnalysis, `clearDyObs` on) and, from
-perception, the depth camera and both sonars: `orin_nav.py` sends the voxels
-perception's own STVL keeps (`/local_costmap/voxel_grid`, 5 Hz, 0.05–0.7 m above the
-floor, its 15 s memory and clearing) placed around base_link, and the sonar ranges.
-On the Orin they become `/depth_grid` (a StaticLayer: each grid replaces the last)
-and `/sonar/front`, `/sonar/rear` (a RangeSensorLayer as perception's); the collision
-monitor gets the voxels as `/depth_points`. If the camera or a sonar stops for 1 s, the
-Orin sends no commands, so perception publishes zeros. The lidar barely sees low things
-close beside him; the camera's 15 s memory covers what he has just passed in front of.
+perception, the depth camera: `orin_nav.py` gets the voxels perception's own STVL keeps
+(`/local_costmap/voxel_grid`, 5 Hz, 0.08–0.7 m above the floor (under his normal-gait step), 2.5 s memory) placed
+around base_link and keeps only those ahead of his nose (x > 0.35 m). The camera is for
+the lidar's blind spot in front of him; beside, behind and under him is the lidar's job.
+On the Orin they become `/depth_grid` (a StaticLayer: each grid replaces the last) and,
+for the collision monitor, `/depth_points`. The sonars (`/sonar/front`, `/sonar/rear`)
+are not in the costmap: their ~30° cone draws walls too wide in doorways, so the front
+one only stops or slows him in the collision monitor (glass). If the camera or a sonar
+stops for 1 s, the Orin sends no commands, so perception publishes zeros.
+Why the short memory: on the bridge (2026-11-04) afternoon sun glare on the glossy floor
+appeared as an obstacle 0.5 m ahead; with 15 s memory he stepped onto it and stood stuck
+~20 s, the camera unable to see under him to clear it.
 The global costmap has the map and the lidar only, as perception's.
 
 `robot/shadow_link.py` and `orin/bin/shadow.sh` are the earlier steps (MPPI following

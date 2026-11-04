@@ -22,10 +22,19 @@
          track_unknown_space:   false   #default space is unknown
          decay_model:           0      #0=linear, 1=exponential, -1=persistent
 -        voxel_decay:           2.0     #seconds if linear, e^n if exponential -- longer than lidar's 0.3s since the camera's FOV is narrow and loses sight of obstacles when the robot turns
-+        voxel_decay:           15.0       #seconds if linear, e^n if exponential; was 2.0 - forgot obstacles beside him, scraped a chair 2026-09-27; -- longer than lidar's 0.3s since the camera's FOV is narrow and loses sight of obstacles when the robot turns
++        voxel_decay:           2.5       #seconds if linear, e^n if exponential; was 2.0, 15.0 (2026-09-27 chair scrape), back to 2.5 2026-11-04: the camera is only for the blind spot ahead, the sides are the lidar's; 15 s kept bridge glare under him ~20 s -- longer than lidar's 0.3s since the camera's FOV is narrow and loses sight of obstacles when the robot turns
          mapping_mode:          false  # default off, saves map not for navigation
          map_save_duration:     60.0     #default 60s, how often to autosave
  
+@@ -81,7 +81,7 @@
+           observation_persistence: 0.5  #default 0, use all measurements taken during now-value, 0=latest
+           expected_update_rate: 0.5     #default 0, if not updating at this rate at least, remove from buffer
+           data_type: PointCloud2
+-          min_obstacle_height: 0.05      #meters, catch low obstacles
++          min_obstacle_height: 0.08      #meters; was 0.05 (a wheeled value), 2026-11-04: safely under his normal-gait step (15 cm is H-step mode only)
+           max_obstacle_height: 1.00      #meters
+           inf_is_valid: false           #default false, for laser scans
+           marking: true
 @@ -99,10 +99,39 @@
            model_type: 0                 #0=DEPTH_CAMERA (frustum model), 1=3D_LIDAR -- must be 0 for a depth camera
            obstacle_range: 3.0           #meters, D435 reliable indoor range
@@ -90,10 +99,19 @@
          track_unknown_space:   false   #default space is unknown
          decay_model:           0      #0=linear, 1=exponential, -1=persistent
 -        voxel_decay:           2.0     #seconds if linear, e^n if exponential
-+        voxel_decay:           15.0       #seconds if linear, e^n if exponential; was 2.0 - forgot obstacles beside him, scraped a chair 2026-09-27;
++        voxel_decay:           2.5       #seconds if linear, e^n if exponential; was 2.0, 15.0 (2026-09-27 chair scrape), back to 2.5 2026-11-04: the camera is only for the blind spot ahead, the sides are the lidar's; 15 s kept bridge glare under him ~20 s
          mapping_mode:          false  # default off, saves map not for navigation
          map_save_duration:     60.0     #default 60s, how often to autosave
  
+@@ -149,7 +178,7 @@
+           observation_persistence: 0.5  #default 0, use all measurements taken during now-value, 0=latest
+           expected_update_rate: 0.5     #default 0, if not updating at this rate at least, remove from buffer
+           data_type: PointCloud2
+-          min_obstacle_height: 0.05      #meters
++          min_obstacle_height: 0.08      #meters; was 0.05 (a wheeled value), 2026-11-04: safely under his normal-gait step (15 cm is H-step mode only)
+           max_obstacle_height: 1.00      #meters
+           inf_is_valid: false           #default false, for laser scans
+           marking: true
 @@ -167,10 +196,39 @@
            model_type: 0                 #0=DEPTH_CAMERA (frustum model)
            obstacle_range: 3.0           #meters
