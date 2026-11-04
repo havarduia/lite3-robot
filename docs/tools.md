@@ -71,11 +71,21 @@ laptop turns `/joint_states` plus `urdf/lite3.urdf` into the leg frames.
 
 **The floor map view (`nav`).** Opens `env/lite3_nav.rviz` instead: fixed
 frame `map`, seen from above and following him, with the floor map, the
-walls scan, the local costmap, Nav2's global and local paths, RPP's
-lookahead point and collision arc, his footprint, AMCL's particles (with
-`LOCALIZER=amcl`), the sonars and the panel's goal. It needs Nav2 up with a
+walls scan, Nav2's route (`/plan`), the sonars and the panel's goal, and from
+the **Orin**, whose Nav2 drives: the local costmap MPPI steers on (lidar
+terrain plus the camera grid) and his footprint. It needs Nav2 up with a
 floor loaded; without the `map` frame rviz shows nothing but a frame
-warning. The global costmap is in the preset but off and not relayed: on a
+warning.
+
+The Orin part comes over a second ssh link (`LITE3_ORIN`, default
+`-J ysc@lite3-perception lite3@192.168.1.5`), to a copy of this file at
+`~/bin/rviz.py` there (`--send-only`: no panel on the Orin). The Orin's
+`odom` is FAST-LIO2's, not perception's, so its frames arrive renamed
+`orin/odom` and `orin/base_link`, hung off `map` by the Orin's own
+map -> odom, and its topics under `/orin/`. Checked 2026-11-04: the two
+`base_link`s agreed on the map to 5 mm and 0.03°. The Orin's `/tf` is never
+thinned: thinning it kept dropping odom -> base_link. Without the Orin link
+the rest of the view still works. The global costmap is in the preset but off and not relayed: on a
 big floor (the arcade map is 200 x 125 m) it is megabytes a second over
 ssh. Add `/global_costmap/costmap` on the command line to have it anyway.
 

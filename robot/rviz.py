@@ -19,6 +19,7 @@ The robot end is this same file, started by the laptop end:
 import json
 import math
 import os
+import queue
 import signal
 import struct
 import subprocess
@@ -49,10 +50,20 @@ SENSORS = ['/camera/depth/color/points', '/us_publisher/ultrasound_front',
            '/us_publisher/ultrasound_distance', '/global_costmap/costmap',
            '/local_costmap/costmap', '/plan', '/local_plan', GOAL]
 # `nav`: the floor map view. Not the global costmap: on a big floor it is megabytes a
-# second over ssh (name /global_costmap/costmap to have it anyway).
-NAV = ['/map', '/scan_walls', '/local_costmap/costmap', '/local_costmap/published_footprint',
-       '/plan', '/local_plan', '/lookahead_point', '/lookahead_collision_arc', '/particlecloud',
+# second over ssh (name /global_costmap/costmap to have it anyway). /plan is the Orin's
+# route, which perception republishes.
+NAV = ['/map', '/scan_walls', '/plan',
        '/us_publisher/ultrasound_front', '/us_publisher/ultrasound_distance', GOAL]
+# ...and from the Orin, whose Nav2 drives: the local costmap MPPI steers on, the footprint,
+# and its tf. Its odom is FAST-LIO2's, not perception's, so its frames are renamed here
+# (ORIN_FRAMES) and hang off map by the Orin's own map -> odom.
+ORIN = os.environ.get('LITE3_ORIN', '-J ysc@lite3-perception lite3@192.168.1.5').split()
+ORIN_REMOTE = ('source /opt/ros/humble/setup.bash && export ROS_DOMAIN_ID=42 && '
+               'exec python3 ~/bin/rviz.py --send-only ')
+ORIN_TOPICS = ['/tf', '/local_costmap/costmap', '/local_costmap/published_footprint']
+ORIN_PREFIX = '/orin'
+ORIN_BASE = 128         # an Orin frame's index is its own plus this: one stream, one recording
+ORIN_FRAMES = {'odom': 'orin/odom', 'base_link': 'orin/base_link'}
 PANEL = 'http://127.0.0.1:8080/ws'     # robot/hmi.py, on the robot; rviz's goals go to it
 MARK_S = 1.5            # the goal marker fades this long after the panel last sent it (2 Hz)
 RESCAN_S = 2.0          # look for topics that were not there yet (Nav2 started later)
@@ -73,8 +84,11 @@ CAM_URL = ('https://raw.githubusercontent.com/IntelRealSense/realsense-ros/ros2-
 CAM_ORIGIN = {'xyz': '0.0043 0 0', 'rpy': '1.5708 0 1.5708'}
 
 
-def send(topics):
-    """Robot end: raw (undecoded) messages to stdout as index, length, bytes."""
+def send(topics, panel=True, whole=()):
+    """Robot end: raw (undecoded) messages to stdout as index, length, bytes.
+    `panel`: also pass rviz's goals on to the panel (perception only). `whole`: topics
+    never thinned: the Orin's /tf mixes frames, and thinning it kept dropping
+    odom -> base_link, which comes just after FAST-LIO2's own camera_init -> body."""
     import rclpy
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from rosidl_runtime_py.utilities import get_message
@@ -119,11 +133,12 @@ def send(topics):
             kind = pubs[0].topic_type
             frame(ANNOUNCE, json.dumps([i, topic, kind, latched]).encode())
             subs[topic] = node.create_subscription(
-                get_message(kind), topic, relay(i, latched), qos, raw=True)
+                get_message(kind), topic, relay(i, latched or topic in whole), qos, raw=True)
 
     scan()
     node.create_timer(RESCAN_S, scan)
-    threading.Thread(target=to_panel, daemon=True).start()
+    if panel:
+        threading.Thread(target=to_panel, daemon=True).start()
     rclpy.spin(node)
 
 
@@ -162,6 +177,24 @@ def to_panel():
                 except (aiohttp.ClientError, OSError) as e:
                     print('not sent, is the panel (robot.hmi) running? %s' % e, file=sys.stderr, flush=True)
     asyncio.new_event_loop().run_until_complete(run())
+
+
+def orin_frame(i, data):
+    """An Orin frame as it joins the robot's stream: its index past ORIN_BASE and, in its
+    announcement, its topic under ORIN_PREFIX (so the Orin's costmap is not perception's)."""
+    if i == ANNOUNCE:
+        j, topic, kind, latched = json.loads(data)
+        return ANNOUNCE, json.dumps([j + ORIN_BASE, ORIN_PREFIX + topic, kind, latched]).encode()
+    return i + ORIN_BASE, data
+
+
+def orin_tf(transforms):
+    """The Orin's map -> odom and odom -> base_link, renamed into its own frames; the rest dropped."""
+    keep = [t for t in transforms if t.child_frame_id in ORIN_FRAMES]
+    for t in keep:
+        t.header.frame_id = ORIN_FRAMES.get(t.header.frame_id, t.header.frame_id)
+        t.child_frame_id = ORIN_FRAMES[t.child_frame_id]
+    return keep
 
 
 def read(pipe, n):
@@ -289,30 +322,44 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
     rviz = procs[1]
 
     link = {'ssh': None}
+    frames, stopping = queue.Queue(), threading.Event()
 
-    def connect():
-        # Keepalive: a laptop that changes network leaves a dead connection that
-        # ssh would otherwise sit on for many minutes.
-        procs.append(subprocess.Popen(
-            ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=3',
-             '-o', 'ServerAliveCountMax=2', *ROBOT, REMOTE + ' '.join(topics)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE))
-        link['ssh'] = procs[-1]
-        return procs[-1]
-
-    def live():
-        ssh = connect()
-        while True:
+    def pull(host, remote, names, orin):
+        """One link's frames onto `frames`, reconnecting when it drops; the Orin's renumbered."""
+        while not stopping.is_set():
+            # Keepalive: a laptop that changes network leaves a dead connection that
+            # ssh would otherwise sit on for many minutes.
+            ssh = subprocess.Popen(
+                ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=3',
+                 '-o', 'ServerAliveCountMax=2', *host, remote + ' '.join(names)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            procs.append(ssh)
+            if not orin:
+                link['ssh'] = ssh
             try:
-                i, n = HEAD.unpack(read(ssh.stdout, HEAD.size))
-                yield i, read(ssh.stdout, n)
+                while True:
+                    i, n = HEAD.unpack(read(ssh.stdout, HEAD.size))
+                    data = read(ssh.stdout, n)
+                    frames.put(orin_frame(i, data) if orin else (i, data))
             except EOFError:
-                print('lost the robot end (ssh %s: run this on the laptop; is ~/robot pulled there, the robot reachable?); retrying'
-                      % ' '.join(ROBOT))
+                if stopping.is_set():
+                    return
+                print('lost the %s end (ssh %s: is it reachable, %s there?); retrying'
+                      % ('Orin' if orin else 'robot', ' '.join(host),
+                         '~/bin/rviz.py' if orin else '~/robot pulled'))
                 ssh.terminate()
                 procs.remove(ssh)
                 time.sleep(RETRY_S)
-                ssh = connect()
+
+    def live():
+        threading.Thread(target=pull, args=(ROBOT, REMOTE, topics, False), daemon=True).start()
+        if nav:
+            threading.Thread(target=pull, args=(ORIN, ORIN_REMOTE, ORIN_TOPICS, True), daemon=True).start()
+        while rviz.poll() is None:
+            try:
+                yield frames.get(timeout=1.0)
+            except queue.Empty:
+                pass
 
     tape = open(record, 'wb') if record else None
     began = time.monotonic()
@@ -322,7 +369,7 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
         signal.signal(sig, signal.default_int_handler)
     rclpy.init()
     node = rclpy.create_node('rviz_relay')
-    pubs, names = {}, {}
+    pubs, names, kinds = {}, {}, {}
     tf_pub = node.create_publisher(TFMessage, '/tf', 10)
     sonar = {topic: (name, top, node.create_publisher(Range, '/sonar/' + name, 1))
              for name, (topic, _, _, top) in SONARS.items()}
@@ -393,6 +440,16 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
         if keep:
             tf_pub.publish(TFMessage(transforms=keep))
 
+    def orin_msg(i, data):
+        m = deserialize_message(data, kinds[i])
+        if names[i] == ORIN_PREFIX + '/tf':
+            keep = orin_tf(m.transforms)
+            if keep:
+                tf_pub.publish(TFMessage(transforms=keep))
+        else:
+            m.header.frame_id = ORIN_FRAMES.get(m.header.frame_id, m.header.frame_id)
+            pubs[i].publish(m)
+
     try:
         for i, data in recorded(play, speed) if play else live():
             if rviz.poll() is not None:
@@ -401,6 +458,9 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
                 tape.write(REC.pack(time.monotonic() - began, i, len(data)) + data)
             if i != ANNOUNCE:
                 if i in pubs:
+                    if names[i].startswith(ORIN_PREFIX + '/'):
+                        orin_msg(i, data)
+                        continue
                     if names[i] == '/tf':
                         robot_tf(data)
                         continue
@@ -427,19 +487,21 @@ def show(extra, record=None, play=None, speed=1.0, nav=False):
             if latched:
                 qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
             pubs[i] = node.create_publisher(msg, topic, qos)
-            names[i] = topic
+            names[i], kinds[i] = topic, msg
             print('relaying %s [%s]' % (topic, kind))
         else:
             # Once only: the stamps are the robot's clock, and rviz ignores frames
             # older than ones it has, so a second pass would show a frozen robot.
-            print('end of %s; close rviz when done, run again to see it again' % play)
-            rviz.wait()
+            if play:                    # live() ends only when rviz is closed
+                print('end of %s; close rviz when done, run again to see it again' % play)
+                rviz.wait()
     except KeyboardInterrupt:
         pass
     finally:
+        stopping.set()
         if tape:
             tape.close()
-        for p in procs:
+        for p in list(procs):
             p.terminate()
 
 
@@ -461,6 +523,15 @@ def check():
         f.flush()
         assert list(recorded(f.name, speed=2.0, sleep=waits.append)) == frames
     assert [round(w) for w in waits] == [0, 5, 10]
+    # The Orin's frames: renumbered and renamed apart from perception's, its tf in its own frames.
+    i, data = orin_frame(ANNOUNCE, json.dumps([1, '/local_costmap/costmap', 'k', True]).encode())
+    assert (i, json.loads(data)) == (ANNOUNCE, [1 + ORIN_BASE, '/orin/local_costmap/costmap', 'k', True])
+    assert orin_frame(1, b'x') == (1 + ORIN_BASE, b'x') and ORIN_BASE + len(ORIN_TOPICS) < ANNOUNCE
+    from types import SimpleNamespace as N
+    tf = lambda a, b: N(header=N(frame_id=a), child_frame_id=b)     # noqa: E731
+    kept = orin_tf([tf('map', 'odom'), tf('odom', 'base_link'), tf('base_link', 'livox')])
+    assert [(t.header.frame_id, t.child_frame_id) for t in kept] == [('map', 'orin/odom'),
+                                                                     ('orin/odom', 'orin/base_link')]
     print('ok')
 
 
@@ -469,6 +540,8 @@ if __name__ == '__main__':
         check()
     elif sys.argv[1:2] == ['--send']:
         send(sys.argv[2:])
+    elif sys.argv[1:2] == ['--send-only']:       # the Orin's end: no panel there
+        send(sys.argv[2:], panel=False, whole=('/tf',))
     elif sys.argv[1:2] == ['--record']:
         show(sys.argv[3:], record=sys.argv[2])
     elif sys.argv[1:2] == ['--play']:
