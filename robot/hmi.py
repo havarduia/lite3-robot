@@ -615,6 +615,9 @@ class Server:
             text = (c.get('text') or '').strip()
             if text:
                 r.talk(text)
+        else:
+            # a page newer than this server (pulled, panel not restarted) sends commands it lacks
+            r.warn('unknown command %r: restart the panel if it was just updated' % k)
 
     async def floor_map(self, request):
         """A floor's map as the map server reads it (PGM); the page paints it."""
