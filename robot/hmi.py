@@ -298,6 +298,10 @@ class Robot:
         self.say('arrived' if status == SUCCEEDED else None if status == CANCELED else 'failed')
         return status_text(status)
 
+    def go_place(self, name):
+        p = places.find(self.bot.floor, name)
+        return self.go_point(p['x'], p['y'], p['yaw_deg'])
+
     def say(self, what):
         """One of SAY aloud, beside whatever he is doing."""
         if what in SAY:
@@ -587,6 +591,15 @@ class Server:
             deg = None if c.get('deg') is None else float(c['deg'])    # none: he ends facing the way he came
             r.submit('goto map %.1f, %.1f%s' % (float(c['x']), float(c['y']), '' if deg is None else ' facing %.0f°' % deg),
                      r.go_point, float(c['x']), float(c['y']), deg)
+        elif k == 'go_place':
+            name = str(c['name'])
+            r.submit('goto map %s' % name, r.go_place, name)
+        elif k == 'save_place':
+            # with x, y: that point (heading deg, else 0); without: where he stands and faces
+            at = [float(c['x']), float(c['y'])] if 'x' in c else [None, None]
+            deg = None if c.get('deg') is None else float(c['deg'])
+            name = str(c.get('name') or '')
+            r.submit('save place %s' % name, r.bot.save_place, name, *at, deg)
         elif k in ('camera', 'voa'):
             r.submit('%s %s' % (k, 'on' if c.get('on') else 'off'),
                      r.service, k, bool(c.get('on')))
@@ -771,5 +784,39 @@ class Server:
             self.robot.shutdown()
 
 
+def check():
+    """The place commands with a stand-in robot: no ROS, no hardware, a scratch floor."""
+    import tempfile
+    places.ROOT = tempfile.mkdtemp()
+    os.makedirs(os.path.join(places.ROOT, 'f'))
+    open(os.path.join(places.ROOT, 'f', 'map.yaml'), 'w').close()
+    places.save('f', 'arcade', -77.8, -24.6, -90)
+    calls = []
+
+    class Bot:
+        floor = 'f'
+
+        def save_place(self, *a):
+            calls.append(('save', a))
+
+    r = Robot.__new__(Robot)                    # no __init__: that starts the real robot
+    r.bot, r.busy, r.estopped, r._warned, r.log = Bot(), None, False, {}, lambda *a: None
+    r.work = ThreadPoolExecutor(1)
+    r.go_point = lambda x, y, deg=None: calls.append(('go', x, y, deg))
+    s = Server.__new__(Server)
+    s.robot = r
+    for c in ({'cmd': 'go_place', 'name': 'Arcade'},           # a name matches ignoring case
+              {'cmd': 'save_place', 'name': 'door'},           # where he stands
+              {'cmd': 'save_place', 'name': 'ring', 'x': 1.5, 'y': -2, 'deg': 45}):
+        asyncio.run(s.command(None, c))
+        r.work.submit(lambda: None).result()    # the command has run
+    assert calls == [('go', -77.8, -24.6, -90.0), ('save', ('door', None, None, None)),
+                     ('save', ('ring', 1.5, -2.0, 45.0))], calls
+    print('hmi ok')
+
+
 if __name__ == '__main__':
-    Server().main()
+    if sys.argv[1:] == ['check']:
+        check()
+    else:
+        Server().main()

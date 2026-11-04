@@ -41,7 +41,11 @@ CDN: even its typeface, B612, is embedded) with:
   sends no heading, "Facing" sends the fader's), and with the map focused
   arrows move it, [ ] turn it and Enter sends it. Pinch, the wheel or the
   + − keys zoom (Fit, Him); zoomed in, a drag pans. It shows him, the
-  saved places, the point he is going to and Nav2's route. The page gets
+  saved places, the point he is going to and Nav2's route. Under the map,
+  **Go to** has one key per saved place: one click sends him there, facing
+  the place's heading (same goal as Go here). **Save** stores a named place:
+  where he stands and faces, or, with a goal ring on the map, the ring's
+  point and heading ("Any way": the way he would arrive). The page gets
   the map as the PGM the map server reads (`/map/<floor>`) and paints it
   itself. Not there yet: a new goal while one is under way (Cancel first);
 - a **hold-to-drive** joystick (and WASD) built on `steer()`: the page sends

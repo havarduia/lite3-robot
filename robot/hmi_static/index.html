@@ -210,7 +210,7 @@ input[type=number], input[type=text], select, textarea {
 }
 select { min-width: 9em; }
 input[type=number] { width: 4.8em; font-weight: 700; text-align: right; }
-#map-name { width: 9em; }
+#map-name, #place-name { width: 9em; }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .unit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .line label { min-width: 5.5em; color: var(--ink-2); }
@@ -427,6 +427,14 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
       <div class="line">
         <button class="key" id="map-here" aria-pressed="false">I am here</button>
         <span id="map-hint"></span>
+      </div>
+      <div class="line" id="map-places" hidden>
+        <span class="unit">Go to</span>
+        <span id="place-keys" class="line"></span>
+      </div>
+      <div class="line" id="map-save" hidden>
+        <input id="place-name" type="text" placeholder="place name" aria-label="name of the place to save" autocapitalize="off" spellcheck="false">
+        <button class="key" id="place-save">Save his spot</button>
       </div>
       <div class="line" id="map-pick" hidden>
         <label class="unit">x <input id="pick-x" type="number" step="0.05" inputmode="decimal" aria-label="goal x, metres"></label>
@@ -748,6 +756,20 @@ function mapStatus(s) {
   $('map-record').hidden = !!(rec || saving);
   $('map-save').hidden = $('map-cancel').hidden = !rec || saving;
   if (rec || saving) $('map-new').open = true;
+  // one key per saved place: a click sends him there. Rebuilt only when the list changes, so a press is not lost.
+  const names = m ? (m.places || []).map(([n]) => n) : [], keys = $('place-keys');
+  if (keys.dataset.list !== names.join('\n')) {
+    keys.dataset.list = names.join('\n'); keys.innerHTML = '';
+    for (const n of names) {
+      const b = document.createElement('button');
+      b.className = 'key'; b.textContent = n; b.title = 'Send him to ' + n;
+      b.addEventListener('click', () => send({ cmd: 'go_place', name: n }));
+      keys.appendChild(b);
+    }
+  }
+  for (const b of keys.children) b.disabled = !!(m && m.why) || !!s.busy;
+  $('map-places').hidden = !names.length;
+  $('map-save').hidden = !m || !!m.why;
   $('map-state').textContent = !m ? 'No floor' : m.why ? m.floor + ': not placed' : m.floor;
   $('map-state').className = 'lamp' + (!m ? ' off' : m.why ? ' busy' : '');
   drawMap();
@@ -801,6 +823,7 @@ function drawMap() {
     : m.why ? `He cannot be sent anywhere: ${m.why}. Press I am here.`
     : 'Press a spot to put the goal there.';
   for (const id of ['zoom-in', 'zoom-out', 'zoom-fit', 'zoom-him']) $(id).disabled = !ready;
+  $('place-save').textContent = pick && !pick.here ? 'Save the ring' : 'Save his spot';
   if (!ready) {
     MAP.view = null;
     g.fillStyle = col('--trace'); g.fillText(m ? 'Fetching the map of ' + m.floor : 'No floor loaded', W / 2, H / 2);
@@ -969,6 +992,15 @@ $('map-ok').addEventListener('click', () => {
   const at = { x: +p.x.toFixed(2), y: +p.y.toFixed(2) };
   send({ cmd: p.here ? 'here' : 'go_point', ...at, ...(p.deg != null && { deg: wrapDeg(p.deg) }) });   // "Any way": no heading
   MAP.pick = null; setHere(false); drawMap();
+});
+$('place-save').addEventListener('click', () => {
+  const n = $('place-name').value.trim(), p = MAP.pick;
+  if (!n) { $('place-name').focus(); $('place-name').placeholder = 'name first'; return; }
+  const msg = { cmd: 'save_place', name: n };
+  // the ring's point, facing its heading or (Any way) the way he would arrive; else where he stands
+  if (p && !p.here) Object.assign(msg, { x: +p.x.toFixed(2), y: +p.y.toFixed(2), deg: wrapDeg(p.deg != null ? p.deg : deg(pickYaw(p, lastStatus.map))) });
+  send(msg);
+  $('place-name').value = '';
 });
 $('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });
 const mapName = () => $('map-name').value.trim();

@@ -28,6 +28,9 @@
 /cloud_fix
 /navigate_to_pose/_action/status
 /global_costmap/costmap
+# the camera's memory (STVL voxels, a few hundred points at 5 Hz, so cheap) WITH height: the Orin
+# only gets them flattened, and the bridge ghost's height decides the low cut (2026-11-04)
+/local_costmap/voxel_grid
 
 # what he saw, and his state (gait, battery)
 /scan_walls
