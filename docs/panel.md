@@ -53,7 +53,7 @@ CDN: even its typeface, B612, is embedded) with:
   "dead-man" switch: released, tab closed, Wi-Fi lost → stop). Forward stops
   at camera clearance ≤ 0.6 m, backward at rear sonar < 0.5 m. Driving is
   refused while Nav2 runs;
-- Say it: text spoken aloud through Piper (offline), with a volume fader;
+- Say it: text spoken aloud in his voice (Kokoro on the Orin, offline), with a volume fader;
 - an always-visible **E-STOP** (also the space bar) that bypasses the command
   queue and calls `Lite3.estop()` directly;
 - **Cancel**, shown while a Go is under way: ends it and leaves Nav2 running.

@@ -25,13 +25,15 @@ import json
 import os
 import re
 import shutil
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import wave
 
-from .protocol import MOTION_IP
+from .protocol import MOTION_IP, ORIN_IP
 
 # For play_url's yt-dlp: an HTTP proxy if the robot has no internet of its own. Empty = direct.
 PROXY = os.environ.get('TALK_PROXY', '')
@@ -65,6 +67,11 @@ PIPER_DIR = os.path.expanduser('~/piper')
 PIPER_VOICE = 'en_US-ryan-medium'    # his voice
 # Low noise = flat intonation and even timing: the "translation computer" sound.
 PIPER_ARGS = ['--noise_scale', '0.1', '--noise_w', '0.1', '--length_scale', '1.1']
+# say() is Kokoro on the Orin's GPU first (orin/bin/tts_server.py, voice bm_george, ~0.4 s a
+# sentence, the user's pick 2026-11-09); Piper here stands in while that is down.
+TTS_SERVER = (ORIN_IP, 8047)
+TTS_RATE = 24000                    # tts_server.RATE
+TTS_CONNECT_S = 0.5                 # the Orin is on the cable: an answer is instant, or it is down
 # Loudness: the codec PCM volume goes to max (192 = 0 dB) and speech gets a
 # software gain with a limiter. SOFT_GAIN = 1.0 undoes the software part.
 HW_PCM = 192
@@ -146,14 +153,16 @@ class Voice:
 
     # --- speech ------------------------------------------------------------
     def say(self, text, wait=True, voice=None, alien=False):
-        """Speak exactly `text`, through Speaker (streaming Piper).
-        `voice` picks a Piper model (see voices()); alien=True is Rocky's sound.
+        """Speak exactly `text` in his voice (Kokoro on the Orin, RemoteSpeaker).
+        `voice` picks a Piper model here instead (see voices()); alien=True is Rocky's sound.
         """
         if not wait:
             threading.Thread(target=self.say, args=(text,),
                              kwargs={'voice': voice, 'alien': alien}).start()
             return None
-        with Speaker(voice=voice, alien=alien, flat=alien, host=self.host) as sp:
+        sp = Speaker(voice=voice, alien=alien, flat=alien, host=self.host) if voice else \
+            speaker(alien=alien, host=self.host)
+        with sp:
             for s in sentences([text + ' ']):
                 sp.say(s)
             sp.finish()
@@ -253,8 +262,7 @@ class Speaker:
             if self._player is None:
                 self._player = self._open_player()
             self._pending += 1
-        self._piper.stdin.write(text + '\n')
-        self._piper.stdin.flush()
+        self._send(text)
 
     def finish(self, timeout=120):
         """Wait until everything said so far has played, then free the speaker."""
@@ -302,29 +310,85 @@ class Speaker:
         p_ff.stdout.close()
         return p_ff, p_ap
 
-    def _pump(self):
-        """Feed each finished wav into the open player, in order."""
+    def _send(self, text):
+        self._piper.stdin.write(text + '\n')
+        self._piper.stdin.flush()
+
+    def _made(self):
+        """Each sentence's samples, in the order said, as each is ready."""
         for line in self._piper.stdout:
             path = line.strip()
-            try:
-                with wave.open(path) as w:
-                    frames = w.readframes(w.getnframes())
-                os.remove(path)
+            with wave.open(path) as w:
+                frames = w.readframes(w.getnframes())
+            os.remove(path)
+            yield frames
+
+    def _pump(self):
+        """Feed each finished sentence into the open player, in order."""
+        try:
+            for frames in self._made():
                 with self._cv:
                     player = self._player
                 if player:
                     player[0].stdin.write(frames)
                     player[0].stdin.flush()
-            except (OSError, EOFError, wave.Error) as e:
                 with self._cv:
-                    self._error = 'speaker: %s' % e
+                    self._pending -= 1
+                    self._cv.notify_all()
+        except (OSError, EOFError, wave.Error) as e:
             with self._cv:
-                self._pending -= 1
+                self._error = 'speaker: %s' % e
                 self._cv.notify_all()
+            return
+        # The source only ends when Piper or the Orin's voice has gone, also between two Says:
+        # nothing reads any more, so the next Say must fail at once, not wait out finish().
         with self._cv:
-            if self._pending:
-                self._error = 'piper exited unexpectedly'
+            self._error = 'the voice stopped unexpectedly'
             self._cv.notify_all()
+
+
+class RemoteSpeaker(Speaker):
+    """Speaker with each sentence made on the Orin (orin/bin/tts_server.py: Kokoro on its
+    GPU). The same say()/finish()/close(); raises OSError at once if the Orin's voice is down."""
+
+    def __init__(self, alien=False, host=HOST, server=TTS_SERVER):
+        self._sock = socket.create_connection(server, timeout=TTS_CONNECT_S)
+        self._sock.settimeout(None)         # idle between Says; finish() has its own timeout
+        self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.rate = TTS_RATE
+        self.af = ALIEN_FILTER if alien else None
+        self._ssh = _ssh(host)
+        self._cv = threading.Condition()
+        self._pending = 0
+        self._player = None
+        self._error = None
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _send(self, text):
+        self._sock.sendall((text + '\n').encode())
+
+    def _made(self):
+        f = self._sock.makefile('rb')
+        while True:
+            head = f.read(4)
+            if len(head) < 4:
+                return                      # closed: _pump marks the speaker broken
+            n, = struct.unpack('<I', head)
+            data = f.read(n)
+            if len(data) < n:
+                raise EOFError('the Orin stopped mid-sentence')
+            yield data
+
+    def close(self):
+        self._sock.close()
+
+
+def speaker(alien=False, host=HOST):
+    """His voice: Kokoro on the Orin. No fallback (the user's choice, 2026-11-09)."""
+    try:
+        return RemoteSpeaker(alien=alien, host=host)
+    except OSError as e:
+        raise TalkError("the Orin's voice (kokoro-tts, %s:%d) is down: %s" % (TTS_SERVER + (e,)))
 
 
 _END = re.compile(r'[.!?]["\')]*\s')

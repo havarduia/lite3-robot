@@ -31,6 +31,7 @@ import subprocess
 
 MOTION_IP = '192.168.1.120'          # 192.168.2.1 on the robot's own wifi
 AP_IP = '192.168.2.1'                # the motion computer on its own wifi (wifi_mode.sh)
+ORIN_IP = '192.168.1.5'              # the Orin: lidar, its Nav2, his voice (tts_server.py)
 MOTION_ADDR = (MOTION_IP, 43893)     # jy_exe: every motion command
 # jetson2app on THIS (perception) computer: the app/handheld AI switch
 # APP_ADDR = ('127.0.0.1', 43899)

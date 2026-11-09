@@ -121,7 +121,7 @@ robot/                 the library: `from robot.lite3 import Lite3`
   depth.py             point cloud -> obstacle ranges                          (part of Lite3)
   protocol.py          every UDP code and address; no ROS; also a raw-code CLI
   sonar_range.py       ROS node: sonars -> sensor_msgs/Range for Nav2
-  talk.py              speaker: built-in clips, Piper text-to-speech (offline)
+  talk.py              speaker: built-in clips, text-to-speech (Kokoro on the Orin, offline)
   hmi.py               web control panel server; the page is in hmi_static/
   rs_stream.py         RealSense colour -> H.264 video          (started by hmi.py)
   udp_relay.py         WebRTC video to the panel                 (started by hmi.py)

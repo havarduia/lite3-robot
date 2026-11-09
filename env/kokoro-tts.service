@@ -1,0 +1,26 @@
+# Runs on the ORIN (192.168.1.5). His voice: Kokoro on the GPU (orin/bin/tts_server.py, docs/voice.md).
+# Needs ~/tts/venv and ~/tts/models (docs/voice.md, "Kokoro on the Orin"). Install there:
+#   copy orin/bin/tts_server.py to /home/lite3/bin/, then
+#   sudo cp kokoro-tts.service /etc/systemd/system/ && sudo systemctl enable --now kokoro-tts
+[Unit]
+Description=Kokoro text-to-speech for the Lite3's speaker (tts_server.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lite3
+Group=lite3
+WorkingDirectory=/home/lite3/bin
+Environment=HOME=/home/lite3
+Environment=PYTHONUNBUFFERED=1
+# Kokoro runs on the GPU; the text front end is CPU. Keep it off FAST-LIO2's cores (see cloud-locate).
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Nice=10
+ExecStart=/home/lite3/tts/venv/bin/python /home/lite3/bin/tts_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

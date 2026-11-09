@@ -174,7 +174,7 @@ class Robot:
         self.bot.heartbeat_start()
         self.work = ThreadPoolExecutor(1)       # motion: one thing at a time
         self.talk_pool = ThreadPoolExecutor(1)  # talking runs beside motion
-        self.speaker = None                     # one Piper kept loaded: a fresh one costs ~1.8 s per Say
+        self.speaker = None                     # the link to the Orin's voice, kept open between Says
         self.talk_pool.submit(self._speaker)    # warm it now, not at the first Say
         self.busy = None                        # name of the running command
         self.estopped = False
@@ -359,17 +359,17 @@ class Robot:
             self.driving = False
             self.blocked = None
 
-    # --- talking: Piper here, out of his speaker; nothing goes online ----
+    # --- talking: Kokoro on the Orin; nothing goes online ----
     def talk(self, text):
         self.talk_pool.submit(self._talk, text)
 
     def _speaker(self):
-        """The kept Speaker, started if there is none (only the talk thread calls this)."""
+        """The kept link to the Orin's voice, opened if there is none (talk thread only)."""
         if self.speaker is None:
-            from .talk import Speaker
+            from .talk import speaker
             try:
-                self.speaker = Speaker(flat=False)     # as Voice.say() speaks
-            except Exception as e:                      # no Piper: say so at the first Say
+                self.speaker = speaker()
+            except Exception as e:                      # the Orin's voice is down: say so at the Say
                 self.log('speaker not ready: %s' % e, 'error')
                 return None
         return self.speaker
@@ -378,18 +378,22 @@ class Robot:
         try:
             from .talk import sentences
             self.emit({'t': 'said', 'who': 'robot', 'text': text})
-            sp = self._speaker()
-            if sp is None:
-                return
-            try:
-                for s in sentences([text + ' ']):
-                    sp.say(s)
-                sp.finish()
-            except Exception:
-                # a Speaker keeps its first error for good: start a fresh one next time
-                self.speaker = None
-                sp.close()
-                raise
+            for last in (False, True):
+                sp = self._speaker()
+                if sp is None:
+                    return
+                try:
+                    for s in sentences([text + ' ']):
+                        sp.say(s)
+                    sp.finish()
+                    return
+                except Exception:
+                    # A speaker keeps its first error for good, and a kept link to the Orin may
+                    # have died since the last Say (it rebooted): one more try on a fresh one.
+                    self.speaker = None
+                    sp.close()
+                    if last:
+                        raise
         except Exception as e:                  # talking unavailable, driving is not
             self.log('say failed: %s' % e, 'error')
 

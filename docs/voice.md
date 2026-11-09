@@ -8,13 +8,15 @@ The speaker is on the **motion computer**, so every sound is a pipeline
 ending in `ssh ysc@192.168.1.120 aplay`:
 
 ```
-text ─► Piper TTS ─► ffmpeg (to raw S16LE 48 kHz stereo, + 800 ms silence) ─► ssh ─► aplay ─► ES8388 ─► speaker
+text ─► Kokoro TTS (on the Orin) ─► ffmpeg (to raw S16LE 48 kHz stereo, + 800 ms silence) ─► ssh ─► aplay ─► ES8388 ─► speaker
 ```
 
 - `play('OKstandup')`: one of the robot's ~33 built-in clips; plays entirely
   on the robot.
-- `say(text)`: Piper (neural TTS on the Jetson, offline), through `Speaker`
-  below. No Piper, no speech: there is no fallback.
+- `say(text)`: Kokoro (neural TTS on the Orin's GPU, offline, voice
+  `bm_george`), through `RemoteSpeaker` below. Orin's voice down, no speech:
+  there is no fallback (the user's choice, 2026-11-09). `say(text, voice=...)`
+  still uses a Piper model on the Jetson.
 - `play_file(path)`, `play_url(youtube_url)` (via `yt-dlp`).
 
 Details that were learned the hard way:
@@ -39,11 +41,34 @@ and internet. The robot has its own internet (student-FoU via the Orin, see
 CONNECT proxy on the laptop, forward its port over SSH and set
 `TALK_PROXY=http://localhost:3128`.
 
+## Kokoro on the Orin (since 2026-11-09)
+
+The user found Piper's voices hard to understand ("Hello" sounded wrong in
+every one), so his voice is now Kokoro-82M, voice `bm_george` (British male,
+the user's pick), on the Orin's GPU: ~0.4 s per sentence, 0.6-0.7 s from Say
+to sound. `orin/bin/tts_server.py` keeps the model loaded and serves
+sentences over TCP 8047 on the cable network only (192.168.1.5), so nobody on
+campus Wi-Fi can make him talk; `env/kokoro-tts.service` runs it.
+
+Installed on the Orin in `~/tts`: a venv (`python3 -m venv`, needed
+`apt install python3-venv`) with `kokoro-onnx` 0.6.1 and `onnxruntime-gpu`
+1.24 from the Jetson AI Lab index (`pypi.jetson-ai-lab.io/jp6/cu126`), and
+the model and voices in `~/tts/models` (`kokoro-v1.0.onnx`,
+`voices-v1.0.bin`). Trap: `pip install kokoro-onnx` pulls in the CPU
+`onnxruntime`, which hides the GPU one; uninstall both and reinstall
+`onnxruntime-gpu` with `--no-deps`. Check it with
+`~/tts/venv/bin/python ~/bin/tts_server.py --check` ("Hello." in ~0.4 s, on
+CUDAExecutionProvider). Supertonic was tried too: 1.1-2.3 s on the CPU.
+
+The panel keeps one link open between Says. If it died (the Orin or the
+service restarted) the Say is retried once on a fresh link.
+
 ## `Speaker`: streaming, sentence by sentence
 
 One long-running Piper process (model load is ~1.4 s) writes one WAV per
 sentence; a pump thread feeds them into a single open `ffmpeg | ssh aplay`
 stream. The first sentence plays while the next is still being synthesised.
+`RemoteSpeaker` is the same with the sentences made by `tts_server.py`.
 It adds software gain with a limiter and sets the codec volume to max.
 
 CLI: `python3 -m robot.talk say "text"`, `... play OKstandup`,
