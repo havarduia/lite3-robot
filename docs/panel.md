@@ -57,8 +57,9 @@ CDN: even its typeface, B612, is embedded) with:
 - an always-visible **E-STOP** (also the space bar) that bypasses the command
   queue and calls `Lite3.estop()` directly;
 - **Cancel**, shown while a Go is under way: ends it and leaves Nav2 running.
-  A Go does not outlive its operator either: 3 s after the last page went
-  away it is cancelled, and if Nav2 will not let go, e-stopped.
+  A Go does not outlive its operator either: 10 s after the last page went
+  away it is cancelled (long enough to ride out a Wi-Fi gap between access
+  points; meanwhile Nav2 and the collision monitor still stop him for obstacles), and if Nav2 will not let go, e-stopped.
 
 Robot commands run in a single-worker thread pool so only one thing moves the
 robot at a time; talking has its own pool so it can happen alongside. On
@@ -66,7 +67,7 @@ shutdown it sits the robot down before dropping the heartbeat.
 
 The timings: the drive halts 0.3 s after the last stick message (`DEADMAN_S`);
 a silent page is noticed within about 7.5 s (`PING_S` × 1.5); a Go is cancelled
-3 s after the last page went (`GONE_S`, the page itself reconnects in 1.5 s)
+10 s after the last page went (`GONE_S`, the page itself reconnects in 1.5 s)
 and becomes an E-STOP if Nav2 has not let go 2 s later (`LET_GO_S`). A
 malformed message from a page is logged and ignored. A browser button is not
 a hardware stop: keep the handheld at hand. For HTTPS, run
@@ -100,8 +101,12 @@ The Orin's driver roams late: on a test round on 2026-10-19 only 1 of 5
 access point changes was a clean hand-over; the rest clung to the old
 access point until the gateway went quiet, then were down 13-35 s.
 `env/wifi-watchdog.sh` (a service on the ORIN) pings the gateway every 2 s
-and runs `nmcli con up student-FoU` after 3 missed pings (a drop once came
-back without a fresh DHCP lease and the campus blocked IPv4 for 6 min).
+and runs `nmcli con up student-FoU` after 5 missed pings (a drop once came
+back without a fresh DHCP lease and the campus blocked IPv4 for 6 min),
+retrying with a rescan until it is back. Misses in the 15 s after its own
+roam are not counted: the gateway goes quiet for a few seconds while the
+lease is re-checked, and the old 3-miss rule tore down a good link on the
+first hallway walk (2026-11-09, 2 min offline).
 Below -70 dBm it scans every 10 s and `wpa_cli roam`s to an access point
 of the same network 8 dB stronger; that move takes ~1 s with no packets
 lost. The thresholds are at the top of the script.

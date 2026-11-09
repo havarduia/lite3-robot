@@ -58,7 +58,7 @@ by the legs alone; [lidar.md](lidar.md)).
 **What happens if the program crashes or Wi-Fi drops?**
 Motion calls always publish zero velocity on exit. Remote driving (teleop,
 web) uses dead-man timeouts of 0.3–0.5 s, and a Go started from the web panel
-is cancelled 3 s after its last page disconnects. Beyond that, the robot's
+is cancelled 10 s after its last page disconnects. Beyond that, the robot's
 own failsafe stops it ~1.5 s after velocity commands stop arriving.
 
 **Why does the robot talk only when standing still?**
