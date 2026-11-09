@@ -174,6 +174,8 @@ class Robot:
         self.bot.heartbeat_start()
         self.work = ThreadPoolExecutor(1)       # motion: one thing at a time
         self.talk_pool = ThreadPoolExecutor(1)  # talking runs beside motion
+        self.speaker = None                     # one Piper kept loaded: a fresh one costs ~1.8 s per Say
+        self.talk_pool.submit(self._speaker)    # warm it now, not at the first Say
         self.busy = None                        # name of the running command
         self.estopped = False
         self.drive_cmd = (0.0, 0.0, 0.0)        # vx, wz, time received
@@ -361,11 +363,33 @@ class Robot:
     def talk(self, text):
         self.talk_pool.submit(self._talk, text)
 
+    def _speaker(self):
+        """The kept Speaker, started if there is none (only the talk thread calls this)."""
+        if self.speaker is None:
+            from .talk import Speaker
+            try:
+                self.speaker = Speaker(flat=False)     # as Voice.say() speaks
+            except Exception as e:                      # no Piper: say so at the first Say
+                self.log('speaker not ready: %s' % e, 'error')
+                return None
+        return self.speaker
+
     def _talk(self, text):
         try:
-            from .talk import Voice
+            from .talk import sentences
             self.emit({'t': 'said', 'who': 'robot', 'text': text})
-            Voice().say(text)
+            sp = self._speaker()
+            if sp is None:
+                return
+            try:
+                for s in sentences([text + ' ']):
+                    sp.say(s)
+                sp.finish()
+            except Exception:
+                # a Speaker keeps its first error for good: start a fresh one next time
+                self.speaker = None
+                sp.close()
+                raise
         except Exception as e:                  # talking unavailable, driving is not
             self.log('say failed: %s' % e, 'error')
 
