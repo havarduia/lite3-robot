@@ -67,15 +67,16 @@ PIPER_DIR = os.path.expanduser('~/piper')
 PIPER_VOICE = 'en_US-ryan-medium'    # his voice
 # Low noise = flat intonation and even timing: the "translation computer" sound.
 PIPER_ARGS = ['--noise_scale', '0.1', '--noise_w', '0.1', '--length_scale', '1.1']
-# say() is Kokoro on the Orin's GPU first (orin/bin/tts_server.py, voice bm_george, ~0.4 s a
-# sentence, the user's pick 2026-11-09); Piper here stands in while that is down.
+# say() is Kokoro on the Orin's GPU (orin/bin/tts_server.py, voice bm_george, ~0.4 s a
+# sentence, the user's pick 2026-11-09). No fallback: Orin's voice down, no speech.
 TTS_SERVER = (ORIN_IP, 8047)
 TTS_RATE = 24000                    # tts_server.RATE
 TTS_CONNECT_S = 0.5                 # the Orin is on the cable: an answer is instant, or it is down
 # Loudness: the codec PCM volume goes to max (192 = 0 dB) and speech gets a
-# software gain with a limiter. SOFT_GAIN = 1.0 undoes the software part.
+# software gain, a compressor and a limiter (SPEECH_LOUD, docs/voice.md).
 HW_PCM = 192
-SOFT_GAIN = 1.6
+SOFT_GAIN = 2.0
+SPEECH_LOUD = 'acompressor=threshold=0.1:ratio=6:attack=3:release=80:makeup=4,alimiter=limit=0.95'
 # Master volume, 0.0 - 1.0, on top of the above (the HMI slider sets this).
 # Read when a sound starts, so a change applies from the next sound on.
 VOLUME = 1.0
@@ -295,7 +296,8 @@ class Speaker:
         self.close()
 
     def _open_player(self):
-        gain = 'volume=%.2f,alimiter=limit=0.95' % (SOFT_GAIN * VOLUME)
+        # The fader after the compressor, or turning it down would only compress less.
+        gain = 'volume=%.2f,%s,volume=%.2f' % (SOFT_GAIN, SPEECH_LOUD, VOLUME)
         # One stream serves a whole reply, so the amp lead-in costs LEAD_IN_MS
         # once per reply, not per line.
         ff = (['ffmpeg', '-loglevel', 'error', '-f', 's16le', '-ar', str(self.rate),

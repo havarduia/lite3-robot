@@ -28,9 +28,13 @@ Details that were learned the hard way:
   completely inaudible without it.
 - Raw samples, not WAV, go down the pipe, so there is no header to misread.
 - Loudness (2026-09-18): the codec's PCM volume is set to max (192 = 0 dB,
-  was 180 = −6 dB) each time the speaker opens, and speech gets a software
-  gain of 1.6 with a limiter. Pushing the amp itself past 0 dB distorts on
-  this small speaker.
+  was 180 = −6 dB) each time the speaker opens. Pushing the amp itself past
+  0 dB distorts on this small speaker.
+- Speech loudness (2026-11-09, Kokoro): a software gain of 2.0, a compressor
+  (`SPEECH_LOUD`: threshold 0.1, ratio 6, makeup 4) and a limiter at 0.95,
+  then the panel's fader. −12.1 LUFS against −17.1 with the old gain of 1.6
+  and limiter alone (Kokoro speaks quieter than Piper). Harder compression
+  got no louder; cutting below 150 Hz was tried and not chosen (user, by ear).
 
 What it needs: passwordless SSH from the Jetson to the motion computer; `ysc`
 in the `audio` group there (done 2026-09-15); `ffmpeg` on the Jetson; Piper in
