@@ -355,6 +355,14 @@ def main():
     assert abs(c[0] - nav.FIT_POSE_STD[0] ** 2) < 1e-9 and abs(c[35] - nav.FIT_POSE_STD[1] ** 2) < 1e-9, (c[0], c[35])
     del POSES[:]
 
+    # placed, but the first global costmap is late (a big floor): say so, not "Nav2 did not finish starting"
+    late = nav.COSTMAP_WAIT_S
+    nav.COSTMAP_WAIT_S = 0.3
+    r, _, _ = run(lambda b: b.set_pose(5.0, 5.0, 90, timeout=2.0), **dict(on_floor(), grid=None))
+    nav.COSTMAP_WAIT_S = late
+    assert isinstance(r, L.Lite3Error) and str(r).startswith('placed at') and 'no global costmap' in str(r), r
+    del POSES[:]
+
     # lost on the way: the goal is dropped and he stops, he does not walk on a wrong position
     r, halted, _ = run(lambda b: b.go_to_point(2.0, 5.0),
                        at=(9.0, lambda w: setattr(w, 'loc', w.loc._replace(state=locate.NO_FIT))), **on_floor())

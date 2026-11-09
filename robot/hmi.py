@@ -608,6 +608,8 @@ class Server:
             self.rs_update()
         elif k == 'watch' and c.get('cam') == 'model':
             (self.model_pages.add if c.get('on') else self.model_pages.discard)(ws)
+        elif k == 'watch':
+            pass    # the page says it for every camera; only the two above have a stream to start here
         elif k == 'volume':
             from . import talk
             talk.VOLUME = min(1.0, max(0.0, float(c['v'])))

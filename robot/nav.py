@@ -39,6 +39,7 @@ ROUTE_SLOWEST = 0.2     # m/s: longer routes get their length at this speed (135
                         # A last resort only: Nav2's progress checker catches him stuck within 10 s.
 THERE_M = 0.2           # nearer than this the planner makes no path, and he is there anyway
 SHORT_M = 0.6           # "succeeded" further than this from the point is not believed (it stops 0.1 to 0.2 m off)
+COSTMAP_WAIT_S = 60.0   # s after he is placed for Nav2's first global costmap (arcade floor: >30 s, 2026-11-09)
 CLEAR_SETTLE_S = 2.5    # the global costmap is redrawn once a second; the map and a fresh scan are back by then
 # Nav2's controller here has nothing that rewards turning towards the path: with
 # the goal behind him it stood for 20 s, then span as a "recovery" (2026-10-09,
@@ -514,8 +515,13 @@ class Nav:
             if said is None or (not taken and time.time() - said > 3.0):
                 self._pose_pub.publish(m)
                 said = time.time()
-            if taken and self.localized and self._node.grid is not None:
-                return True
+            if taken and self.localized:
+                # Placed. Goals still need the first global costmap (its frame and costs), and on
+                # a big floor that comes long after the pose: wait for it on its own clock.
+                if self._wait(lambda: self._node.grid is not None, COSTMAP_WAIT_S):
+                    return True
+                raise Lite3Error('placed at (%.2f, %.2f), but Nav2 sent no global costmap in %.0f s more; '
+                                 'see /tmp/nav2.log' % (x, y, COSTMAP_WAIT_S))
             time.sleep(0.2)
         raise Lite3Error('gave the pose (%.2f, %.2f, %.0f deg), but: %s' % (
             x, y, yaw_deg, self.lost_why() or 'Nav2 did not finish starting; see /tmp/nav2.log'))
