@@ -107,7 +107,7 @@ retrying with a rescan until it is back. Misses in the 15 s after its own
 roam are not counted: the gateway goes quiet for a few seconds while the
 lease is re-checked, and the old 3-miss rule tore down a good link on the
 first hallway walk (2026-11-09, 2 min offline).
-Below -70 dBm it scans every 10 s and `wpa_cli roam`s to an access point
+Below -67 dBm it scans every 4 s and `wpa_cli roam`s to an access point
 of the same network 8 dB stronger; that move takes ~1 s with no packets
 lost. The thresholds are at the top of the script.
 

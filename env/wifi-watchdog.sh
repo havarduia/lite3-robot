@@ -18,9 +18,9 @@ CON=${CON:-student-FoU}     # NetworkManager connection, and the SSID to roam wi
 EVERY=${EVERY:-2}            # s between gateway pings
 MISSES=${MISSES:-5}          # missed pings in a row before a full reconnect (~10-15 s)
 ROAM_QUIET=${ROAM_QUIET:-15} # s after a roam not counted: the lease is re-checked
-ROAM_DBM=${ROAM_DBM:--70}    # weaker than this: look for a better access point
+ROAM_DBM=${ROAM_DBM:--67}    # weaker than this: look for a better access point (-70 let him reach -93 dBm first, 2026-11-09)
 ROAM_GAIN=${ROAM_GAIN:-8}    # and move only to one this many dB stronger
-SCAN_EVERY=${SCAN_EVERY:-10} # s between those scans while weak
+SCAN_EVERY=${SCAN_EVERY:-4}  # s between those scans while weak (a scan holds the radio ~3 s; at 0.5 m/s 10 s was too late)
 
 wpa() { wpa_cli -p /run/wpa_supplicant -i "$IF" "$@"; }
 
