@@ -540,7 +540,7 @@ function connect() {
     online(true);
     if ($('cam-realsense').querySelector('img, video')) send({ cmd: 'watch', cam: 'realsense', on: true });
     if ($('cam-model').classList.contains('on')) send({ cmd: 'watch', cam: 'model', on: true });
-    // A dropout (eduroam roaming) kills the video too, and neither WebRTC nor MJPEG comes back alone.
+    // A dropout (Wi-Fi roaming) kills the video too, and neither WebRTC nor MJPEG comes back alone.
     if (lostOnce) ['front', 'realsense'].forEach(n => $('cam-' + n).classList.contains('on') && showCam(n, true));
   };
   ws.onclose = () => { lostOnce = true; online(false); setTimeout(connect, 1500); };

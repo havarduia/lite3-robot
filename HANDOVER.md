@@ -10,7 +10,7 @@ the robot on 2026-10-23. Secrets are not written here, only where they are.
 |---|---|---|---|---|
 | Perception (Jetson Xavier NX, Ubuntu 20.04, ROS2 Foxy) | 192.168.1.103 | `lite3-perception` | `ysc` | this repository in `~/robot`; services `hmi`, `lio_relay`, `realsense_ros2`, `transfer_ros2`, `roam-rebind` |
 | Motion (RK3588, vendor) | 192.168.1.120; 192.168.2.1 on the robot's wifi | `lite3-motion` | `ysc` | the vendor controller `jy_exe`, `track` (the vendor's person detector, not used), `rtsp_stream` (front camera), `robot-nat`, the wifi access point (`~/wifi_mode.sh`) |
-| Orin Nano (Ubuntu, ROS 2 Humble) | 192.168.1.5 | Tailscale IP 100.114.74.5 (hostname `ubuntu`) | `lite3` | the lidar and mapping: `livox-driver`, `lidar-web` (panel on :8000), `lidar-scan`, `lio-send`, `cloud-locate`, `eduroam-watchdog`, `orin-nat` |
+| Orin Nano (Ubuntu, ROS 2 Humble) | 192.168.1.5 | Tailscale IP 100.114.74.5 (hostname `ubuntu`) | `lite3` | the lidar and mapping: `livox-driver`, `lidar-web` (panel on :8000), `lidar-scan`, `lio-send`, `cloud-locate`, `wifi-watchdog`, `orin-nat` |
 | Livox MID-360S lidar | 192.168.1.102 | | | |
 
 The robot's wifi is `YSC-JYML-pr3gdi-5G`. A laptop on it gets a
@@ -43,10 +43,8 @@ robot.
       that account goes, remote access goes. Move the nodes to a lab or
       department tailnet (`sudo tailscale up --force-reauth` on each computer),
       then update this file.
-- [ ] **Eduroam.** The Orin is the robot's only way to the internet, and it
-      signs in to eduroam with a personal `@uia.no` account (NetworkManager
-      connection `eduroam` on the Orin). Without internet,
-      the Tailscale relay and `play_url` stop working. Replace it with a lab or service account.
+- The Orin's internet is the campus network `student-FoU`, with a shared
+  WPA2 password, not a personal login (since 2026-11-09; eduroam was removed).
 - Gemini was removed on 2026-10-23, so there is no API key to hand over.
 - **Who to ask:** Håvard Karlsen Solheim, haavardkso@gmail.com, who built
   this repository.

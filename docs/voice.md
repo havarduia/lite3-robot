@@ -34,8 +34,8 @@ What it needs: passwordless SSH from the Jetson to the motion computer; `ysc`
 in the `audio` group there (done 2026-09-15); `ffmpeg` on the Jetson; Piper in
 `~/piper` (the standalone aarch64 release, voices as `~/piper/<name>.onnx`);
 for `play_url`, standalone `yt-dlp` and `deno` binaries in `~/.local/bin`
-and internet. The robot has its own internet (eduroam via the Orin, see
-"Driving across eduroam access points"). If it ever has none, run an HTTP
+and internet. The robot has its own internet (student-FoU via the Orin, see
+"The robot's internet" in docs/panel.md). If it ever has none, run an HTTP
 CONNECT proxy on the laptop, forward its port over SSH and set
 `TALK_PROXY=http://localhost:3128`.
 

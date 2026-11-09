@@ -74,56 +74,37 @@ a hardware stop: keep the handheld at hand. For HTTPS, run
 `https://lite3-perception.<tailnet>.ts.net`; the server also listens on
 localhost for that.
 
-**Driving across eduroam access points.** Eduroam blocks devices from
-reaching each other directly (tested 2026-10-15: laptop and robot on the same
-subnet, no IPv4 or IPv6 reply), so the panel always goes through a Tailscale
-relay (DERP Amsterdam, ~45 ms; the robot's side of eduroam's NAT also varies
-its mapping per destination, so Tailscale cannot punch through). A laptop on
-**his own wifi** goes direct instead (3 ms, 2026-10-19): the motion computer
-routes it, also to the Orin's eduroam address.
+**The robot's internet.** Since 2026-11-09 the **Orin** is on the campus
+network `student-FoU` (WPA2 password, NetworkManager connection
+`student-FoU` on the Orin, power saving off), on its own 5 GHz radio
+(RTL8822CE). `env/orin-nat.service` NATs the switch out over it, and the
+perception and motion computers route through it (default via
+192.168.1.5). The motion computer's one radio is left to the AP on 5 GHz
+ch 36 (`wifi_mode.sh handheld`), which still has internet and Tailscale
+through the Orin. Eduroam was removed everywhere that day: it blocked
+devices from reaching each other, so Tailscale always went through its
+relay in Amsterdam (~45 ms, and dropouts on every roam). Student-FoU does
+not: a laptop on it reaches the Orin directly (10.245.30.x), and Tailscale
+to the perception computer goes direct, 6 ms (2026-11-09). A laptop on
+**his own wifi** goes direct too (3 ms): the motion computer routes it.
 
-**Who is on eduroam.** Since 2026-10-19 only the **Orin**, on its own 5 GHz
-radio (RTL8822CE). `env/orin-nat.service` NATs the switch out over it, and
-the perception and motion computers route through it (default via
-192.168.1.5). The motion computer's one radio is left to the AP, which
-needs it: it can only use one channel at a time, so with eduroam on it the
-AP was pulled onto eduroam's 2.4 GHz ch 6, and moved every time eduroam
-changed access point (the handheld lost ~5 s each time). Now the AP stays
-on 5 GHz ch 36 (`wifi_mode.sh handheld`, but with internet and Tailscale;
-eduroam there has autoconnect off, so don't use `online`/`eduroam`). The
-switch, measured 2026-10-19:
+**Driving across access points.** When the Orin's Wi-Fi changes access
+point it is back within about 1 s, but on eduroam the campus network
+dropped our connections, and perception's and motion's cable links never
+change, so their Tailscale noticed only ~60 s later (measured 2026-10-15).
+`env/roam-rebind.service` watches the Orin's `iw event` and runs
+`tailscale debug rebind` on both the same second, which re-checks the path
+within 3 s. Not yet measured whether student-FoU needs it; it does no harm.
 
-| | Orin (5 GHz ch 116) | Motion (2.4 GHz ch 6, shared with the AP) |
-|---|---|---|
-| down / up | ~20 / 27 Mbit/s | ~30 / 60-85 Mbit/s |
-| ping 1.1.1.1 (avg / max) | 7.4 / 8.4 ms | 11.2 / 78 ms |
-
-Less bandwidth (the Orin's uplink stays at 27 Mbit/s with one stream or
-four, and with its power saving off), but steady, which is what the drive
-pad and the voice need.
-
-When the Orin's Wi-Fi changes access point it is back within about 1 s,
-but the campus network drops our connections, and perception's and
-motion's cable links never change, so their Tailscale noticed its relay was
-dead only after about 60 s (measured 2026-10-15). `env/roam-rebind.service`
-watches the Orin's `iw event` and runs `tailscale debug rebind` on both the
-same second, which re-checks the relay within 3 s. Install it with the
-commands in the file.
-
-Not every change of access point is a quick hand-over. On 2026-10-15 the access point threw him off, he got back
-on 8 s later, but without a fresh DHCP lease, and the campus network
-blocked his IPv4 for 6 minutes, until `nmcli con up eduroam` by hand.
-`env/eduroam-watchdog.sh` (a service on the ORIN) pings the eduroam
-gateway every 2 s and does that reconnect after 3 missed pings (~6-9 s).
-
-It also roams on purpose. On a test round on 2026-10-19 only 1 of 5 access
-point changes was a clean hand-over: the rest clung to the old access point
-until the gateway went quiet, then were down 13-35 s (the driver roams late,
-and wpa_supplicant's background scan runs every 30 s at best). Below -70 dBm
-the watchdog scans every 10 s and `wpa_cli roam`s to an eduroam access point
-8 dB stronger; that move takes ~1 s with no packets lost. The thresholds are
-at the top of the script. Power saving on the Orin's Wi-Fi is off
-(`802-11-wireless.powersave 2` on the eduroam connection).
+The Orin's driver roams late: on a test round on 2026-10-19 only 1 of 5
+access point changes was a clean hand-over; the rest clung to the old
+access point until the gateway went quiet, then were down 13-35 s.
+`env/wifi-watchdog.sh` (a service on the ORIN) pings the gateway every 2 s
+and runs `nmcli con up student-FoU` after 3 missed pings (a drop once came
+back without a fresh DHCP lease and the campus blocked IPv4 for 6 min).
+Below -70 dBm it scans every 10 s and `wpa_cli roam`s to an access point
+of the same network 8 dB stronger; that move takes ~1 s with no packets
+lost. The thresholds are at the top of the script.
 
 **Him, in 3D.** A third monitor under Cameras: the robot model posed from
 his joint angles, on a floor grid he walks across, with the two sonar beams

@@ -1,0 +1,17 @@
+# Install on the ORIN, the robot's only Wi-Fi client (root):
+#   sudo cp wifi-watchdog.sh /usr/local/bin/ && sudo chmod +x /usr/local/bin/wifi-watchdog.sh
+#   sudo cp wifi-watchdog.service /etc/systemd/system/ && sudo systemctl enable --now wifi-watchdog
+# Reconnects the Wi-Fi (CON, default student-FoU) when its gateway stops answering, and roams to a stronger access
+# point before the current one dies. The knobs (IF, CON, EVERY, MISSES, ROAM_DBM, ROAM_GAIN,
+# SCAN_EVERY) are at the top of wifi-watchdog.sh; override them here with Environment=.
+[Unit]
+Description=Reconnect and roam the Orin's Wi-Fi (lite3_api docs/panel.md)
+After=NetworkManager.service
+
+[Service]
+ExecStart=/usr/local/bin/wifi-watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -100,7 +100,7 @@ It tests the motion loop against a fake robot, so it runs anywhere.
 | use the `Lite3` API: state, posture, motion, e-stop, depth camera, sonars | [docs/api.md](docs/api.md) |
 | navigate with Nav2, mapless or on a floor map, and save places | [docs/navigation.md](docs/navigation.md) |
 | make the robot talk | [docs/voice.md](docs/voice.md) |
-| run or change the web panel, cameras and wifi/eduroam networking | [docs/panel.md](docs/panel.md) |
+| run or change the web panel, cameras and wifi networking | [docs/panel.md](docs/panel.md) |
 | work with the lidar, the Orin and FAST-LIO2 odometry | [docs/lidar.md](docs/lidar.md) |
 | run the tour, teleop, demos, rviz, or measure a run | [docs/tools.md](docs/tools.md) |
 | set up the environment, see our vendor patches and measured numbers | [docs/environment.md](docs/environment.md) |
