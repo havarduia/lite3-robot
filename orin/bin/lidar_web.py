@@ -244,118 +244,6 @@ def api_list():
     return jsonify(out)
 
 
-# -------------------------------------------------------------- navigate ---
-# Nav2 runs on the robot PC (Foxy). The panel sends it floor maps
-# (robot_send.sh) and poses/goals (nav_link.py -> DDS -> web_bridge.py there),
-# and runs the Jetson's half of navigation: /scan + the lidar mount TF.
-navs = {"link": None, "lidar": None, "sent": None,
-        "state": {"status": "not started", "path": [], "robot": None}}
-nav_lock = threading.Lock()
-
-
-def nav_up():
-    """Start the Jetson's nav processes if they are not running."""
-    with nav_lock:
-        if navs["lidar"] is None and navs["link"] is None:
-            # First use since the panel started: clear children a previous
-            # panel left behind (they run in their own sessions, so a panel
-            # restart does not take them down).
-            for name in ("lidar_nav.launch.py", "nav_link.py", "pointcloud_to_laserscan_node"):
-                subprocess.run(["pkill", "-f", name])
-        if navs["lidar"] is None or navs["lidar"].poll() is not None:
-            navs["lidar"] = subprocess.Popen(
-                ["bash", "-c", ROS + f"exec ros2 launch {BIN}/lidar_nav.launch.py"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True)
-        if navs["link"] is None or navs["link"].poll() is not None:
-            # System python: nav_link.py's ROS messages break under kiss_env.
-            p = subprocess.Popen(
-                ["bash", "-c", ROS + f"exec /usr/bin/python3 {BIN}/nav_link.py"],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True, bufsize=1,
-                start_new_session=True)
-            navs["link"] = p
-            spawn(nav_read, p)
-
-
-def nav_read(p):
-    for line in p.stdout:
-        try:
-            navs["state"] = json.loads(line)
-        except ValueError:
-            pass
-
-
-def nav_cmd(c):
-    nav_up()
-    navs["link"].stdin.write(json.dumps(c) + "\n")
-    navs["link"].stdin.flush()
-
-
-def floor_maps():
-    out = []
-    for y in sorted(glob.glob(os.path.join(MAPS, "*", "slam_output", "latest",
-                                           "walls", "floor*.yaml")),
-                    key=os.path.getmtime, reverse=True):
-        d = {}
-        for line in open(y):
-            k, _, v = line.partition(":")
-            d[k.strip()] = v.strip()
-        rel = os.path.relpath(y, MAPS)
-        out.append({"id": rel,
-                    "name": rel.split(os.sep)[0] + " " + os.path.basename(y)[:-5],
-                    "png": "/maps/" + rel[:-5] + ".png",
-                    "res": float(d["resolution"]),
-                    "origin": [float(v) for v in d["origin"].strip("[]").split(",")[:2]]})
-    return out
-
-
-@app.get("/api/nav/maps")
-def api_nav_maps():
-    return jsonify(maps=floor_maps(), sent=navs["sent"])
-
-
-@app.post("/api/nav/send")
-def api_nav_send():
-    mid = (request.get_json(silent=True) or {}).get("map")
-    if mid not in {m["id"] for m in floor_maps()}:
-        return jsonify(error="unknown map"), 404
-    try:
-        r = subprocess.run(["bash", "-c", f"exec {BIN}/robot_send.sh "
-                                          f"{shlex.quote(os.path.join(MAPS, mid))}"],
-                           capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        return jsonify(error="send timed out"), 504
-    lines = (r.stdout + r.stderr).strip().splitlines()
-    sent = [l[6:] for l in lines if l.startswith("sent: ")]
-    if r.returncode or not sent:
-        return jsonify(error=lines[-1] if lines else "send failed"), 502
-    navs["sent"] = mid
-    nav_cmd({"cmd": "load", "path": sent[0]})
-    return jsonify(ok=True, remote=sent[0])
-
-
-@app.post("/api/nav/cmd")
-def api_nav_cmd():
-    b = request.get_json(silent=True) or {}
-    if b.get("cmd") not in ("pose", "plan", "go", "stop"):
-        return jsonify(error="unknown command"), 400
-    try:
-        c = {"cmd": b["cmd"]}
-        if b["cmd"] != "stop":
-            c.update(x=float(b["x"]), y=float(b["y"]), yaw=float(b.get("yaw", 0)))
-    except (KeyError, TypeError, ValueError):
-        return jsonify(error="x, y needed"), 400
-    nav_cmd(c)
-    return jsonify(ok=True)
-
-
-@app.get("/api/nav/state")
-def api_nav_state():
-    nav_up()
-    return jsonify(dict(navs["state"], sent=navs["sent"]))
-
-
 # ------------------------------------------------------------------ live ---
 # lio_live.py runs FAST-LIO2 on the live topic and rewrites ~/maps/live/
 # state.json + changed map tiles every 0.2 s; the Live tab polls those. It runs beside
@@ -454,7 +342,7 @@ def do_live_stop(p, post, one_floor=False, name="live"):
                 raise RuntimeError("kiss_flatten failed")
             one = " --one-floor"
         sh(f"exec /usr/bin/python3 {BIN}/map_walls.py {shlex.quote(d)}{one}",
-           "floor maps for Navigate")
+           "floor maps")
         out = os.path.join(MAPS, base + ".html")
         if sh(f"exec /usr/bin/python3 {BIN}/map_web.py {shlex.quote(d)} -o {out} "
               f"--title {base}{one}", "building the viewer"):
@@ -566,11 +454,6 @@ def index():
 @app.get("/record")
 def record_page():
     return PAGE.replace("__TAB__", "record")
-
-
-@app.get("/nav")
-def nav_page():
-    return PAGE.replace("__TAB__", "nav")
 
 
 # The page: panel.html next to this script; __TAB__ picks the open tab.

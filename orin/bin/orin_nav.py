@@ -11,7 +11,7 @@ Also, for Nav2 here:
     at its FAST-LIO2 stamp: both come from the same /Odometry;
   perception's depth camera as /depth_grid (a StaticLayer in the local costmap) and /depth_points
     (the collision monitor), its sonars as /sonar/front and /sonar/rear (shadow_nav.py's way).
-No command goes back while the camera or the sonars are stale, and a goal is cancelled when
+No command goes back while the camera, the sonars or /terrain_h are stale, and a goal is cancelled when
 perception goes quiet (PERCEPTION_STALE_S): its sonars alone come 20 times a second.
 
     python3 orin_nav.py          system python, ROS sourced; started by nav.sh
@@ -107,7 +107,7 @@ def main():
         tfs.append(t)
     static_tf.sendTransform(tfs)
     nav = ActionClient(node, NavigateToPose, 'navigate_to_pose')
-    s = {'prev': None, 'stamp': None, 'map_odom': None, 'heard': -1e9, 'depth_at': -1e9,
+    s = {'prev': None, 'stamp': None, 'map_odom': None, 'heard': -1e9, 'depth_at': -1e9, 'terrain_at': -1e9,
          'sonar_at': [-1e9, -1e9], 'blind': None,
          # the goal: its number, the handle once taken, its status
          'seq': None, 'handle': None, 'status': 0}
@@ -210,11 +210,11 @@ def main():
 
     def command(c):
         now = time.monotonic()
-        blind = now - s['depth_at'] > SENSORS_STALE_S or now - min(s['sonar_at']) > SENSORS_STALE_S
+        blind = now - min(s['depth_at'], s['terrain_at'], *s['sonar_at']) > SENSORS_STALE_S
         if blind != s['blind']:
             s['blind'] = blind
-            (log.warn if blind else log.info)('camera or sonars stopped coming: no commands go back' if blind
-                                              else 'camera and sonars coming')
+            (log.warn if blind else log.info)('camera, sonars or /terrain_h stopped coming: no commands go back'
+                                              if blind else 'camera, sonars and /terrain_h coming')
         if not blind:
             tell(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z))
 
@@ -301,6 +301,10 @@ def main():
     node.create_subscription(Odometry, '/state_estimation', odom, 20)
     node.create_subscription(Twist, '/cmd_vel', command, 10)
     node.create_subscription(Path, '/plan', plan, 2)
+    # the lidar's obstacles (terrainAnalysis -> terrain_level), not decoded: the costmap keeps its old
+    # marks when they stop, and odometry goes on
+    node.create_subscription(PointCloud2, '/terrain_h', lambda _: s.__setitem__('terrain_at', time.monotonic()), 2,
+                             raw=True)
     node.create_timer(0.05, take)               # the ROS calls stay on the spinning thread
     node.create_timer(MAP_TF_S, map_tf)
     node.create_timer(STATUS_S, status_tick)

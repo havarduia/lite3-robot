@@ -88,7 +88,6 @@ li a b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 [data-tab]{display:none}
 body[data-on="scan"] [data-tab="scan"],
 body[data-on="record"] [data-tab="record"],
-body[data-on="nav"] [data-tab="nav"],
 body[data-on="live"] [data-tab="live"]{display:grid}
 button.on{border-color:rgba(106,169,255,.6);background:rgba(106,169,255,.14);color:var(--accent)}
 .thtog{margin-left:auto;min-height:0;padding:6px 12px;font-size:12px;border-radius:999px}
@@ -112,8 +111,6 @@ select{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
 .stats div{background:#191d24;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
 .stats span{display:block;color:var(--dim);font-size:11px}
 .stats b{font-weight:500;font-variant-numeric:tabular-nums}
-#ncv{width:100%;display:block;border-radius:8px;background:#191d24;touch-action:none;
-  cursor:crosshair}
 @media (min-width:560px){.two{grid-template-columns:1fr 1fr}}
 .two{display:grid;gap:10px}
 </style></head><body data-on="__TAB__">
@@ -137,7 +134,6 @@ select{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
     <a href="/" id="nav-scan">Scan</a>
     <a href="/record" id="nav-record">Record &amp; map</a>
     <a href="/live" id="nav-live">Live</a>
-    <a href="/nav" id="nav-nav">Navigate</a>
   </nav>
 
   <div class="card" data-tab="scan">
@@ -174,7 +170,7 @@ select{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
     <p>Maps and localises as the robot walks; the map, the path and the
        robot's position refresh every 0.2 s. Start with the robot standing
        still (the first second levels the map by gravity). Stop saves the map
-       to the library and to Navigate's floor maps.</p>
+       to the library.</p>
     <input type="text" id="lname" value="live" placeholder="name this run"
            autocapitalize="off" autocorrect="off" spellcheck="false"
            title="Saved as <name>_<date>_<time>. Letters, digits, - and _.">
@@ -195,26 +191,6 @@ select{font:inherit;width:100%;padding:10px 12px;border-radius:9px;
       <div><span>SLAM</span><b id="lcl">&mdash;</b></div>
     </div>
     <div class="lbl"><span id="lstat">&mdash;</span><b id="lage"></b></div>
-  </div>
-
-  <div class="card" data-tab="nav">
-    <h2>Navigate</h2>
-    <p>Nav2 runs on the robot PC. Send it a floor map, then on the map: set
-       where the robot is (tap; drag to give its heading), set a goal the same
-       way, plan the path, go.</p>
-    <select id="nmap"></select>
-    <button class="go" id="bnsend">Send map to robot</button>
-    <div class="two">
-      <button data-nmode="pose" class="on">Set robot pose</button>
-      <button data-nmode="goal">Set goal</button>
-    </div>
-    <canvas id="ncv"></canvas>
-    <div class="lbl"><span id="nstat">&mdash;</span><b id="nmsg"></b></div>
-    <div class="two">
-      <button id="bnplan">Plan path</button>
-      <button class="go" id="bngo">Go</button>
-    </div>
-    <button class="stop" id="bnstop">Stop robot</button>
   </div>
 
   <div class="card">
@@ -271,74 +247,6 @@ $('bcancel').onclick=()=>{
   $('bcancel').disabled=true;
   post('/api/cancel').then(tick);
 };
-
-/* ---- navigate ---- */
-const NV={maps:[],map:null,img:new Image(),mode:'pose',pose:null,goal:null,st:{}};
-async function navMaps(){
-  const j=await (await fetch('/api/nav/maps')).json();
-  NV.maps=j.maps;
-  $('nmap').innerHTML=j.maps.length?j.maps.map((m,i)=>`<option value="${i}">${m.name}</option>`).join('')
-    :'<option>no floor maps yet - record one</option>';
-  $('nmap').value=Math.max(0,j.maps.findIndex(m=>m.id===j.sent));
-  pick();
-}
-function pick(){
-  NV.map=NV.maps[+$('nmap').value]; NV.pose=NV.goal=null;
-  if(NV.map){NV.img.onload=draw; NV.img.src=NV.map.png;}
-}
-$('nmap').onchange=pick;
-/* image pixel <-> map metres; image row 0 is the map's max y */
-function toPx(x,y){const m=NV.map;return [(x-m.origin[0])/m.res,NV.img.naturalHeight-(y-m.origin[1])/m.res];}
-function toW(i,j){const m=NV.map;return [m.origin[0]+i*m.res,m.origin[1]+(NV.img.naturalHeight-j)*m.res];}
-function draw(){
-  const c=$('ncv'),W=NV.img.naturalWidth,H=NV.img.naturalHeight,d=devicePixelRatio;
-  if(!W||!NV.map)return;
-  const cw=c.clientWidth; c.style.height=(cw*H/W)+'px';
-  c.width=cw*d; c.height=cw*H/W*d;
-  const g=c.getContext('2d'),k=c.width/W;
-  g.imageSmoothingEnabled=false; g.drawImage(NV.img,0,0,c.width,c.height);
-  const P=(x,y)=>toPx(x,y).map(v=>v*k);
-  const path=NV.st.path||[];
-  if(path.length){g.strokeStyle='#ffb74d';g.lineWidth=3*d;g.beginPath();
-    path.forEach(([x,y],i)=>{const [u,v]=P(x,y);i?g.lineTo(u,v):g.moveTo(u,v);});g.stroke();}
-  const mark=(p,col)=>{if(!p)return;const [u,v]=P(p[0],p[1]),r=7*d;
-    g.fillStyle=g.strokeStyle=col;g.beginPath();g.arc(u,v,r,0,7);g.fill();
-    g.lineWidth=3*d;g.beginPath();g.moveTo(u,v);
-    g.lineTo(u+Math.cos(p[2])*r*2.6,v-Math.sin(p[2])*r*2.6);g.stroke();};
-  mark(NV.pose,'#5fd08a'); mark(NV.goal,'#ff6b6b'); mark(NV.st.robot,'#6aa9ff');
-}
-/* tap = position, drag = position + heading */
-let down=null;
-$('ncv').onpointerdown=e=>{down=[e.offsetX,e.offsetY];};
-$('ncv').onpointerup=e=>{
-  if(!down||!NV.map)return;
-  const s=NV.img.naturalWidth/$('ncv').clientWidth;
-  const [x,y]=toW(down[0]*s,down[1]*s),dx=e.offsetX-down[0],dy=e.offsetY-down[1];
-  const p=[x,y,Math.hypot(dx,dy)>12?Math.atan2(-dy,dx):0]; down=null;
-  if(NV.mode==='pose'){NV.pose=p;navCmd('pose',p);}else NV.goal=p;
-  $('nmsg').textContent=(NV.mode==='pose'?'pose ':'goal ')+x.toFixed(1)+', '+y.toFixed(1)+' m';
-  draw();
-};
-document.querySelectorAll('[data-nmode]').forEach(b=>b.onclick=()=>{NV.mode=b.dataset.nmode;
-  document.querySelectorAll('[data-nmode]').forEach(o=>o.classList.toggle('on',o===b));});
-function navCmd(cmd,p){const b={cmd};if(p){b.x=p[0];b.y=p[1];b.yaw=p[2];}return post('/api/nav/cmd',b);}
-const needGoal=()=>{$('nmsg').textContent='set a goal on the map first';};
-$('bnsend').onclick=async()=>{
-  if(!NV.map)return;
-  $('bnsend').disabled=true; $('nmsg').textContent='sending…';
-  const j=await post('/api/nav/send',{map:NV.map.id});
-  $('nmsg').textContent=j.ok?'map sent':(j.error||'send failed');
-  $('bnsend').disabled=false;
-};
-$('bnplan').onclick=()=>NV.goal?navCmd('plan',NV.goal):needGoal();
-$('bngo').onclick=()=>{if(!NV.goal)return needGoal();
-  if(confirm('The robot will walk to the goal. Is the way clear?'))navCmd('go',NV.goal);};
-$('bnstop').onclick=()=>navCmd('stop');
-async function navTick(){
-  try{NV.st=await (await fetch('/api/nav/state')).json();
-    $('nstat').textContent=NV.st.status||'';draw();}catch(_){}
-}
-if(TAB==='nav'){navMaps();navTick();setInterval(navTick,1000);addEventListener('resize',draw);}
 
 /* ---- live SLAM ---- */
 /* The map arrives as 12.8 m tiles; each poll fetches only tiles whose version

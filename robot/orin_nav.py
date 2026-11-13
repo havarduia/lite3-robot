@@ -37,6 +37,7 @@ TAKE_S = 20.0           # the Orin takes a goal within this, or it is aborted he
                         # some seconds after a start, and turns goals down till then
 ORIN_STALE_S = 2.0      # it tells the goal's status twice a second
 CANCEL_WAIT_S = 3.0
+CAMERA_STALE_S = 1.0    # no depth frame for this long: the camera has stopped, no voxels go to the Orin
 
 
 def goal_end(status, cancelling):
@@ -57,7 +58,8 @@ def main(dry=False):
     from rclpy.action import ActionServer, CancelResponse
     from rclpy.callback_groups import ReentrantCallbackGroup
     from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-    from sensor_msgs.msg import PointCloud2, Range
+    from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import CameraInfo, PointCloud2, Range
 
     from .lite3 import ODOM_TOPIC, take_ready      # imports rclpy: not for check()
 
@@ -86,10 +88,17 @@ def main(dry=False):
     def voxels(m):
         if 'base' not in here or time.time() - here['base_at'] > 0.2 or m.point_step % 4:
             return
+        # STVL publishes its grid with the camera dead too: the Orin must see the camera stop
+        if time.monotonic() - here.get('camera_at', -1e9) > CAMERA_STALE_S:
+            return
         xyz = np.frombuffer(bytes(m.data), np.float32).reshape(-1, m.point_step // 4)[:, :3]
         to_orin(depth_packet(here['base_at'], here['base'], xyz))
 
     node.create_subscription(PointCloud2, '/local_costmap/voxel_grid', voxels, 1)
+    # one small message per depth frame (30 Hz), not decoded: only that it came
+    node.create_subscription(CameraInfo, '/camera/depth/camera_info',
+                             lambda _: here.__setitem__('camera_at', time.monotonic()), qos_profile_sensor_data,
+                             raw=True)
     for i, topic in enumerate(SONARS):
         node.create_subscription(Range, topic, lambda r, i=i: to_orin(
             SONAR.pack(b'S', i, r.range, r.min_range, r.max_range, r.field_of_view)), 2)

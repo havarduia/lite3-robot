@@ -12,8 +12,7 @@ Open **http://100.114.74.5:8000** (`lidar-web.service`; it starts at boot, as do
 |---|---|
 | **Scan** | Static scan with the robot still: dense cloud, no SLAM. |
 | **Record & map** | Records `/livox/lidar` + `/livox/imu` to `~/bags/<name>_<stamp>`. On Stop, FAST-LIO2 replays the bag into a map. This takes as long as the walk did. |
-| **Live** | FAST-LIO2 on the live sensor. The map, path and robot arrow refresh every 0.2 s. On Stop & save, the map goes to the Library and to Navigate's floor maps. |
-| **Navigate** | Sends a floor map to Nav2 on the robot PC. |
+| **Live** | FAST-LIO2 on the live sensor. The map, path and robot arrow refresh every 0.2 s. On Stop & save, the map goes to the Library. |
 
 Live tab, in order:
 
