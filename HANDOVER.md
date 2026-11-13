@@ -54,11 +54,11 @@ robot.
 - **The Orin's `~/bin`** (30 files) holds the lidar web panel
   (`lidar_web.py`, `map_web.py`), the map slicer (`map_walls.py`), the
   FAST-LIO2 and KISS-ICP scripts and their configs. The Orin runs it from
-  there, outside git; `orin/bin/` here is a snapshot of it (2026-10-28):
-  copy changes made on the Orin back into it. Its own notes are `~/bin/README.md` there; the hostname that README
-  gives (`jetson-lite3`) is out of date. Three files
-  are copies of this repository's: `lio_relay.py`, `cloud_locate.py` and
-  `cloudreg.py`. Copy them over again after you change them here.
+  there, outside git; `orin/bin/` here is the copy to edit, and
+  `orin/deploy.sh` sends it to the Orin (nothing is restarted there). Its own notes are `~/bin/README.md` there; the hostname that README
+  gives (`jetson-lite3`) is out of date. Four files
+  in `orin/bin/` are links to this repository's own: `lio_relay.py`, `cloud_locate.py`,
+  `cloudreg.py` (in `robot/`) and `lidar_nav.launch.py` (in `env/`); `deploy.sh` sends the files themselves.
 - **FAST-LIO2 on the Orin** (`~/livox_ws/src/FAST_LIO`, upstream hku-mars) carries
   local changes that are not committed there; `orin/fast_lio-lite3.patch` is a copy
   (2026-10-28). Rebuild with `cmake --build ~/livox_ws/build/fast_lio`, then copy the

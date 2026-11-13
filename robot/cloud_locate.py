@@ -215,8 +215,10 @@ def main():
     def commands():                                 # a map loads for seconds: not on the ROS thread
         while True:
             try:
-                data, _ = cmd.recvfrom(4096)
+                data, (host, _) = cmd.recvfrom(4096)
             except socket.timeout:
+                continue
+            if host not in (ROBOT[0], '127.0.0.1'):     # the Orin is on the campus Wi-Fi too: perception's word only
                 continue
             t = time.time()
             try:                                    # nothing a command does may stop this thread: it is the only ear

@@ -81,12 +81,13 @@ def main(dry=False):
 
     def odom(m):
         p, o = m.pose.pose.position, m.pose.pose.orientation
-        here['base'], here['base_at'] = (p.x, p.y, yaw_of((o.x, o.y, o.z, o.w))), time.time()
+        # monotonic: the Orin finds this clock's offset from its own by the packets' arrivals
+        here['base'], here['base_at'] = (p.x, p.y, yaw_of((o.x, o.y, o.z, o.w))), time.monotonic()
 
     odom_node.create_subscription(Odometry, ODOM_TOPIC, odom, 1)
 
     def voxels(m):
-        if 'base' not in here or time.time() - here['base_at'] > 0.2 or m.point_step % 4:
+        if 'base' not in here or time.monotonic() - here['base_at'] > 0.2 or m.point_step % 4:
             return
         # STVL publishes its grid with the camera dead too: the Orin must see the camera stop
         if time.monotonic() - here.get('camera_at', -1e9) > CAMERA_STALE_S:

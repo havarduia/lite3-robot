@@ -312,7 +312,7 @@ class Nav:
                     'cost_ahead(), not from scan(): the costmap knows about '
                     'obstacles the camera cannot currently see.' % c)
 
-        began = time.time()
+        began = time.monotonic()
         handle = self.goal_send(gx, gy, gyaw)
         if self._stop_at > began:           # cancelled while Nav2 was taking the goal
             handle.cancel_goal_async()
@@ -402,7 +402,7 @@ class Nav:
         """Ask Nav2 to drop the goal goto() is waiting on, from another
         thread; goto() then returns CANCELED. True if there was one. Nav2
         itself stays up - estop() is the one that kills it."""
-        self._stop_at = time.time()     # ends a turn or a walk too, and a Go that has no goal out yet (_safety)
+        self._stop_at = time.monotonic()     # ends a turn or a walk too, and a Go that has no goal out yet (_safety)
         handle = self._goal_handle
         if handle is None:
             return False
@@ -442,7 +442,7 @@ class Nav:
     def _loc(self):
         """robot/locate.py's newest reading, or None once it has gone quiet."""
         n = self._node
-        if n.loc is None or time.time() - n.loc_time > LOC_STALE_S:
+        if n.loc is None or time.monotonic() - n.loc_time > LOC_STALE_S:
             return None
         return n.loc
 
@@ -511,15 +511,15 @@ class Nav:
         m.pose.pose.orientation.w = math.cos(math.radians(yaw_deg) / 2.0)
         m.pose.covariance[0] = m.pose.covariance[7] = std[0] ** 2
         m.pose.covariance[35] = std[1] ** 2
-        end, said = time.time() + timeout, None
-        while time.time() < end:
+        end, said = time.monotonic() + timeout, None
+        while time.monotonic() < end:
             loc = self._loc()
             taken = loc is not None and int(loc.state) != locate.NO_POSE and dist((loc.x, loc.y), (x, y)) < 1.0
             # Once whatever he believes (near and wide, after a carry, looks taken); then again
             # until AMCL has it: it may not be listening yet, or still hold an older pose.
-            if said is None or (not taken and time.time() - said > POSE_AGAIN_S):
+            if said is None or (not taken and time.monotonic() - said > POSE_AGAIN_S):
                 self._pose_pub.publish(m)
-                said = time.time()
+                said = time.monotonic()
             if taken and self.localized:
                 # Placed. Goals still need the first global costmap (its frame and costs), and on
                 # a big floor that comes long after the pose: wait for it on its own clock.
@@ -532,7 +532,7 @@ class Nav:
             x, y, yaw_deg, self.lost_why() or 'Nav2 did not finish starting; see /tmp/nav2.log'))
 
     _plan_client = None
-    _stop_at = 0.0          # time.time() of the last goto_cancel() or estop()
+    _stop_at = 0.0          # time.monotonic() of the last goto_cancel() or estop()
 
     _clear_client = None
 
@@ -596,7 +596,7 @@ class Nav:
         panel to speak.
         """
         say = say or (lambda what: None)
-        began = time.time()
+        began = time.monotonic()
         for v in (x, y) if yaw_deg is None else (x, y, yaw_deg):
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
                 raise Lite3Error('a map point is numbers, not %r' % (v,))
@@ -629,12 +629,12 @@ class Nav:
                     raise Lite3Error('lost on the way, stopped: ' + why)
             gyaw = math.atan2(y - here[1], x - here[0]) if yaw_deg is None else math.radians(yaw_deg)
             length = sum(dist(a, b) for a, b in zip(route, route[1:]))
-            end = time.time() + max(timeout, length / ROUTE_SLOWEST)
+            end = time.monotonic() + max(timeout, length / ROUTE_SLOWEST)
             for again in (True, False):
                 handle = self.goal_send(x, y, gyaw, frame='map')
                 if self._stop_at > began:   # cancelled while Nav2 was taking the goal
                     handle.cancel_goal_async()
-                status = self._goal_wait(handle, max(0.0, end - time.time()), lost=self.lost_why)
+                status = self._goal_wait(handle, max(0.0, end - time.monotonic()), lost=self.lost_why)
                 short = dist(self.map_pose, (x, y))
                 if status != SUCCEEDED or short < SHORT_M:
                     break

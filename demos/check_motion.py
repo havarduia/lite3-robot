@@ -82,14 +82,14 @@ def run(move, **setup):
     halted, every Twist sent)."""
     w, bot = World(**setup), Bot.__new__(Bot)
     w.bot, bot._node, bot._nav_client, bot._goal_handle = bot, w, None, None
-    real = time.time, time.sleep
-    time.time, time.sleep = (lambda: w.t), w.sleep
+    real = time.monotonic, time.sleep       # the motion code times everything on the monotonic clock
+    time.monotonic, time.sleep = (lambda: w.t), w.sleep
     try:
         r = move(bot)
     except Exception as e:
         r = e
     finally:
-        time.time, time.sleep = real
+        time.monotonic, time.sleep = real
     return r, set(w.sent[-20:]) == {(0.0, 0.0, 0.0)}, w.sent
 
 

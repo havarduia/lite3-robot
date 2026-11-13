@@ -18,6 +18,7 @@ result opens in the browser that pressed the button.
     lidar-web 8080      different port
 """
 import glob
+import ipaddress
 import json
 import os
 import re
@@ -44,6 +45,16 @@ ROS = ("source /opt/ros/humble/setup.bash; "
        "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}; ")
 
 app = Flask(__name__)
+
+# The Orin is on the campus Wi-Fi too, and this page has no login: only this computer, the
+# robot's own switch and the tailnet get in.
+KNOWN = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "192.168.1.0/24", "100.64.0.0/10")]
+
+
+@app.before_request
+def known_only():
+    if not any(ipaddress.ip_address(request.remote_addr) in n for n in KNOWN):
+        return "not from this network", 403
 
 # ponytail: one job at a time, held in module state. There is one LiDAR on the
 # rig, so a second concurrent job has nothing to read - a queue would be
@@ -471,6 +482,6 @@ if __name__ == "__main__":
         print(f"    tailnet : http://{ts}:{port}/")
     print(f"    local   : http://127.0.0.1:{port}/")
     print("  Ctrl-C to stop\n")
-    # Bind all interfaces so the tailnet address works; the tailnet is private.
+    # Bind all interfaces so the tailnet address works; known_only() turns the campus Wi-Fi away.
     # threaded=True matters: the status poll must answer while a job runs.
     app.run(host="0.0.0.0", port=port, threaded=True)

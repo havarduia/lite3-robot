@@ -222,6 +222,12 @@ def check():
     assert drive_cmd((0.2, 0.0, 0.1), 0.5, 0.1) == (0.0, 0.0, 0.0)          # MPPI quiet
     assert drive_cmd((0.2, 0.0, 0.1), 0.1, 0.7) == (0.0, 0.0, 0.0)          # no route here
     assert drive_cmd(None, 0.0, 0.0) == (0.0, 0.0, 0.0)
+    # the Orin's end reads the same layouts on the same ports
+    sys.path.insert(0, __file__.rsplit('/robot/', 1)[0] + '/orin/bin')
+    import importlib
+    o = importlib.import_module('shadow_nav')
+    assert [a.format for a in (o.ROUTE, o.CMD, o.DEPTH, o.SONAR)] == [a.format for a in (ROUTE, CMD, DEPTH, SONAR)]
+    assert (o.PORT, o.DRIVE_PORT) == (ORIN_PORT, DRIVE_PORT)
     print('shadow_link ok')
 
 

@@ -27,7 +27,7 @@ import time
 
 import numpy as np
 
-from lio_relay import FIX, FIX_LOCAL_PORT, FIX_NO_MAP, FIX_OK, inv, join, twist, unpack_fix
+from lio_relay import CLOCK_DRIFT, FIX, FIX_LOCAL_PORT, FIX_NO_MAP, FIX_OK, inv, join, twist, unpack_fix
 from shadow_nav import (CMD, DEPTH, DRIVE_PORT, GRID_RES, JETSON, MATCH_S, PORT, POSES_KEPT, SENSORS_STALE_S,
                         SONAR, SONARS, base_of, depth_cells)
 
@@ -48,6 +48,15 @@ DEPTH_Z = 0.3                       # m: the camera's voxels as points this high
 # see under him anyway: glare on the bridge floor (bridge_nov_4_2) showed up 0.5 m ahead, he stepped onto
 # it and stood stuck ~20 s while it stayed in the camera's memory.
 NOSE_X = 0.35
+RESYNC_S = 5.0                      # a camera stamp this much older than the offset says: perception's clock restarted
+
+
+def clock_ahead(ahead, arrived, sent):
+    """This computer's clock minus perception's, from a datagram's arrival here and its stamp there: the
+    quickest so far (lio_relay's way), so neither clock needs to be right or in step with the other."""
+    if ahead is None or arrived - sent > ahead + RESYNC_S:
+        return arrived - sent
+    return min(ahead + CLOCK_DRIFT, arrived - sent)
 
 
 def map_odom(fix, poses):
@@ -108,12 +117,12 @@ def main():
         tfs.append(t)
     static_tf.sendTransform(tfs)
     nav = ActionClient(node, NavigateToPose, 'navigate_to_pose')
-    s = {'prev': None, 'stamp': None, 'map_odom': None, 'heard': -1e9, 'depth_at': -1e9, 'terrain_at': -1e9,
+    s = {'prev': None, 'stamp': None, 'map_odom': None, 'heard': -1e9, 'depth_at': -1e9, 'terrain_at': -1e9, 'ahead': None,
          'sonar_at': [-1e9, -1e9], 'blind': None,
          # the goal: its number, the handle once taken, its status
          'seq': None, 'handle': None, 'status': 0}
     by_stamp = collections.deque(maxlen=POSES_KEPT)     # (FAST-LIO2 stamp, x, y, yaw): for the fixes
-    by_clock = collections.deque(maxlen=POSES_KEPT)     # (wall clock, ...): for perception's camera
+    by_clock = collections.deque(maxlen=POSES_KEPT)     # (this clock, ...): for perception's camera
     back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     tell = lambda data: back.sendto(data, (JETSON, DRIVE_PORT))     # noqa: E731
 
@@ -125,7 +134,7 @@ def main():
         vx, vy, wz = twist(s['prev'], now) if s['prev'] and 0 < t - s['prev'][0] < 1.0 else (0.0, 0.0, 0.0)
         s['prev'], s['stamp'] = now, m.header.stamp
         by_stamp.append(now)
-        by_clock.append((time.time(), x, y, yaw))
+        by_clock.append((time.monotonic(), x, y, yaw))
         tf = TransformStamped()
         tf.header.stamp, tf.header.frame_id, tf.child_frame_id = m.header.stamp, 'odom', 'base_link'
         tf.transform.translation.x, tf.transform.translation.y = x, y
@@ -230,7 +239,9 @@ def main():
 
     # --- perception's camera and sonars (shadow_nav.py's) --------------------
 
-    def depth(when, rel):
+    def depth(arrived, when, rel):
+        s['ahead'] = clock_ahead(s['ahead'], arrived, when)
+        when += s['ahead']                      # perception's stamp, on this clock
         then = min(by_clock, key=lambda p: abs(p[0] - when), default=None)
         if then is None or abs(then[0] - when) > MATCH_S:
             return
@@ -276,12 +287,12 @@ def main():
         while True:
             data, (host, _) = sock.recvfrom(65535)
             if host_ok(host) and data:
-                inbox.append(data)
+                inbox.append((time.monotonic(), data))
 
     def take():
         latest = {}         # of the camera and each sonar only the newest counts
         while inbox:
-            data = inbox.popleft()
+            arrived, data = inbox.popleft()
             k = data[:1]
             if k == b'L' and len(data) == FIX.size:
                 take_fix(unpack_fix(data))
@@ -292,7 +303,7 @@ def main():
             elif k == b'C' and len(data) == CANCEL.size:
                 cancel(CANCEL.unpack(data)[1])
             elif k == b'D' and len(data) >= DEPTH.size and (len(data) - DEPTH.size) % 8 == 0:
-                latest['D'] = (DEPTH.unpack(data[:DEPTH.size])[1],
+                latest['D'] = (arrived, DEPTH.unpack(data[:DEPTH.size])[1],
                                np.frombuffer(data, np.float32, offset=DEPTH.size).reshape(-1, 2))
             elif k == b'S' and len(data) == SONAR.size:
                 _, i, *r = SONAR.unpack(data)
@@ -341,6 +352,12 @@ def check():
     kept = ahead([(0.0, 0.0), (0.33, 0.1), (0.0, 0.6), (-1.0, 0.0), (0.4, 0.0), (1.0, 1.0)])
     assert np.allclose(kept, [[0.4, 0.0], [1.0, 1.0]]), kept.tolist()
     assert ahead(np.zeros((0, 2), np.float32)).shape == (0, 2)
+    # the two clocks 1000 s apart: the quickest packet sets the offset, a slow one does not move it,
+    # and a stamp from a restarted clock (far older) starts it afresh
+    a = clock_ahead(None, 1000.25, 0.0)
+    a = clock_ahead(a, 1001.02, 1.0)
+    assert abs(a - 1000.02) < 1e-9 and abs(clock_ahead(a, 1002.3, 2.0) - a) < 1e-3, a
+    assert clock_ahead(a, 1010.0, 3.0) == 1007.0
     print('orin_nav ok')
 
 

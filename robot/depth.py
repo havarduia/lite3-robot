@@ -23,10 +23,10 @@ def sampled(read, value=None):
     """read() for a control loop: the returned function calls it at most every
     DEPTH_SAMPLE_S and gives the last answer in between. With `value` (a
     reading just taken) the first call is not due until DEPTH_SAMPLE_S from now."""
-    last = {'t': 0.0 if value is None else time.time(), 'v': value}
+    last = {'t': 0.0 if value is None else time.monotonic(), 'v': value}
 
     def get():
-        now = time.time()
+        now = time.monotonic()
         if now - last['t'] >= DEPTH_SAMPLE_S:
             last['t'], last['v'] = now, read()
         return last['v']
@@ -42,7 +42,7 @@ class Depth:
 
     def cloud_fresh(self):
         n = self._node
-        return n.cloud is not None and time.time() - n.cloud_time <= CLOUD_STALE_S
+        return n.cloud is not None and time.monotonic() - n.cloud_time <= CLOUD_STALE_S
 
     def wait_cloud(self, timeout=10.0):
         if not self._wait(self.cloud_fresh, timeout):

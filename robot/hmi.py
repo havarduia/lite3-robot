@@ -211,8 +211,8 @@ class Robot:
     def warn(self, msg, every=3.0):
         """A warning, but at most once per `every` s: the drive pad sends 10
         messages a second, and each refusal used to log a line."""
-        if time.time() - self._warned.get(msg, 0) >= every:
-            self._warned[msg] = time.time()
+        if time.monotonic() - self._warned.get(msg, 0) >= every:
+            self._warned[msg] = time.monotonic()
             self.log(msg, 'warn')
 
     def submit(self, name, fn, *args):
@@ -317,7 +317,7 @@ class Robot:
     # --- hold-to-drive ---------------------------------------------------
     def drive(self, vx, wz):
         vx, wz = clamp(float(vx), DRIVE_MAX_VX), clamp(float(wz), DRIVE_MAX_WZ)
-        self.drive_cmd = (vx, wz, time.time())
+        self.drive_cmd = (vx, wz, time.monotonic())
         if self.driving or (vx == 0 and wz == 0):
             return
         if self.busy:
@@ -336,7 +336,7 @@ class Robot:
             if self.estopped:
                 return 'E-STOP'
             vx, wz, t = self.drive_cmd
-            if time.time() - t > DEADMAN_S:
+            if time.monotonic() - t > DEADMAN_S:
                 return 'released'
             self.blocked = None
             if vx > 0:

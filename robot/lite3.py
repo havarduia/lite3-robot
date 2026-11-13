@@ -142,8 +142,8 @@ class _Node(Node):
         self.pub = self.create_publisher(Twist, 'cmd_vel', best)
         self.state = None
         self.odom = None
-        self.odom_time = 0.0        # time.time() of the newest odometry
-        self.cloud, self.cloud_time = None, 0.0     # the newest, and its time.time()
+        self.odom_time = 0.0        # time.monotonic() of the newest odometry
+        self.cloud, self.cloud_time = None, 0.0     # the newest, and its time.monotonic()
         self._grid_raw, self._grid = None, (None, None)
         self.local_grid = None      # Nav2's local costmap: a turn on the spot checks it (nav.turn_blocked)
         # Map mode: what robot/locate.py last said, when, and the odometry of that moment.
@@ -178,14 +178,14 @@ class _Node(Node):
         self.state = dict(zip(STATE_FIELDS, m.data))
 
     def _cloud_cb(self, m):
-        self.cloud, self.cloud_time = m, time.time()
+        self.cloud, self.cloud_time = m, time.monotonic()
 
     def _odom_cb(self, m):
         p, q = m.pose.pose.position, m.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         self.odom = (p.x, p.y, yaw)
-        self.odom_time = time.time()
+        self.odom_time = time.monotonic()
 
     def _imu_cb(self, m):
         q = m.orientation
@@ -196,12 +196,12 @@ class _Node(Node):
 
     def _loc_cb(self, m):
         if len(m.data) == len(locate.Reading._fields):
-            self.loc, self.loc_time, self.loc_odom = locate.Reading(*m.data), time.time(), self.odom
+            self.loc, self.loc_time, self.loc_odom = locate.Reading(*m.data), time.monotonic(), self.odom
 
     def _handle_cb(self, m):
         if max(abs(m.linear.x), abs(m.linear.y),
                abs(m.angular.z)) > HANDHELD_DEADBAND:
-            self.stick_time = time.time()
+            self.stick_time = time.monotonic()
 
 
 class Lite3(Nav, Depth):
@@ -270,17 +270,17 @@ class Lite3(Nav, Depth):
     def _spin(self):
         cloud_due = 0.0
         while not self._stop_spin.is_set():
-            tick = time.time()
+            tick = time.monotonic()
             take_ready(self._exec)
             if tick >= cloud_due:
                 cloud_due = tick + 1.0 / CLOUD_HZ
                 take_ready(self._cloud_exec, 1)
-            self._stop_spin.wait(max(0.0, 1.0 / SPIN_HZ - (time.time() - tick)))
+            self._stop_spin.wait(max(0.0, 1.0 / SPIN_HZ - (time.monotonic() - tick)))
 
     @staticmethod
     def _wait(pred, timeout, period=0.05):
-        end = time.time() + timeout
-        while time.time() < end:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
             if pred():
                 return True
             time.sleep(period)
@@ -376,7 +376,7 @@ class Lite3(Nav, Depth):
 
     def _odom_fresh(self):
         n = self._node
-        return n.odom is not None and time.time() - n.odom_time < ODOM_STALE_S
+        return n.odom is not None and time.monotonic() - n.odom_time < ODOM_STALE_S
 
     def pose_settled(self, window=1.5, tol=0.02):
         """True if odometry has not moved for `window` seconds. Standing up jumps
@@ -517,12 +517,12 @@ class Lite3(Nav, Depth):
         lying (the toggle was swallowed), without waiting out the timeout.
         """
         P.send(P.STAND_TOGGLE)
-        sent = time.time()
+        sent = time.monotonic()
         end = sent + timeout
-        while time.time() < end:
+        while time.monotonic() < end:
             if self.standing:
                 return True
-            if time.time() - sent > ARM_GRACE and self.basic in LYING:
+            if time.monotonic() - sent > ARM_GRACE and self.basic in LYING:
                 return False
             time.sleep(0.05)
         return self.standing
@@ -608,11 +608,11 @@ class Lite3(Nav, Depth):
         self.auto()
         self.wait_pose()
         start = self.pose
-        began = time.time()
+        began = time.monotonic()
         deadline = began + min(limit, HARD_TIMEOUT)
         reason = 'time limit'
         try:
-            while time.time() < deadline:
+            while time.monotonic() < deadline:
                 stop = self._safety(began)
                 if stop is None:
                     stop = cycle(start)
