@@ -78,6 +78,9 @@ GLOBAL_PUBLISH_HZ = 0.5
 # The local costmap is sent as often as RPP steers on it, so a bag holds what
 # RPP saw at a "collision ahead" stop; at the mapless 1 Hz it missed brief marks.
 LOCAL_PUBLISH_HZ = 5.0
+# Nearer than this the D435 cannot measure: a false stereo match on the bridge railing put a voxel
+# 12 cm from the lens and stopped him (docs/navigation.md, 2026-11-13). The floor enters the view at 0.5 m.
+CAMERA_NEAR_M = 0.25
 
 
 def check_rpp(p):
@@ -102,7 +105,9 @@ def map_params(mapless, map_yaml):
     g['rolling_window'] = False             # the whole floor, not a window round the robot
     g['update_frequency'] = GLOBAL_UPDATE_HZ
     g['publish_frequency'] = GLOBAL_PUBLISH_HZ
-    p['local_costmap']['local_costmap']['ros__parameters']['publish_frequency'] = LOCAL_PUBLISH_HZ
+    lp = p['local_costmap']['local_costmap']['ros__parameters']
+    lp['publish_frequency'] = LOCAL_PUBLISH_HZ
+    lp['stvl_obstacle_layer']['camera_points']['min_z'] = CAMERA_NEAR_M
     g['plugins'] = ['static_layer'] + [x for x in g['plugins'] if x not in GLOBAL_DROPPED]
     for x in GLOBAL_DROPPED:
         g.pop(x, None)
@@ -128,7 +133,8 @@ bt_navigator:
 local_costmap:
   local_costmap:
     ros__parameters: {global_frame: odom, rolling_window: True, update_frequency: 5.0,
-                      plugins: ["stvl_obstacle_layer", "range_layer", "scan_layer", "inflation_layer"]}
+                      plugins: ["stvl_obstacle_layer", "range_layer", "scan_layer", "inflation_layer"],
+                      stvl_obstacle_layer: {camera_points: {min_z: 0.05, max_z: 3.0}}}
 global_costmap:
   global_costmap:
     ros__parameters:
@@ -157,7 +163,8 @@ recoveries_server:
         g + 'global_frame', g + 'rolling_window', g + 'plugins', g + 'static_layer',
         g + 'update_frequency', g + 'publish_frequency', g + 'unknown_cost_value',
         g + 'stvl_obstacle_layer', g + 'range_layer',
-        '/local_costmap/local_costmap/ros__parameters/publish_frequency']), changed(mapless, out)
+        '/local_costmap/local_costmap/ros__parameters/publish_frequency',
+        '/local_costmap/local_costmap/ros__parameters/stvl_obstacle_layer/camera_points/min_z']), changed(mapless, out)
     gp = out['global_costmap']['global_costmap']['ros__parameters']
     assert gp['plugins'] == ['static_layer', 'scan_layer', 'inflation_layer']   # the map first, the lidar over it
     assert 'stvl_obstacle_layer' not in gp and 'range_layer' not in gp

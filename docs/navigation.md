@@ -155,6 +155,11 @@ stops for 1 s, the Orin sends no commands, so perception publishes zeros.
 Why the short memory: on the bridge (2026-11-04) afternoon sun glare on the glossy floor
 appeared as an obstacle 0.5 m ahead; with 15 s memory he stepped onto it and stood stuck
 ~20 s, the camera unable to see under him to clear it.
+The camera's points nearer than 0.25 m are dropped (`CAMERA_NEAR_M` in
+`env/nav2_map_params.py`, was 0.05): on the bridge walk of 2026-11-13 one voxel about 12 cm
+in front of the lens, where the D435 cannot measure, came and went at (-77, -39 to -41) and
+he took 12 s over 3 m (4 "Optimizer fail"). The bridge was clear; the likely cause is a false
+stereo match on the railing's identical bars. Not walked again since the change.
 The global costmap has the map and the lidar only, as perception's.
 
 `robot/shadow_link.py` and `orin/bin/shadow.sh` are the earlier steps (MPPI following
