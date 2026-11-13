@@ -366,6 +366,14 @@ def main():
     assert abs(c[0] - nav.FIT_POSE_STD[0] ** 2) < 1e-9 and abs(c[35] - nav.FIT_POSE_STD[1] ** 2) < 1e-9, (c[0], c[35])
     del POSES[:]
 
+    # not placed yet: the pose is not said again while the Orin's search (a few seconds) may still be running
+    r, _, _ = run(lambda b: b.set_pose(5.0, 5.0, 90, timeout=7.0), **on_floor(locate.NO_POSE))
+    assert isinstance(r, L.Lite3Error) and len(POSES) == 1, (r, len(POSES))
+    del POSES[:]
+    r, _, _ = run(lambda b: b.set_pose(5.0, 5.0, 90, timeout=10.0), **on_floor(locate.NO_POSE))
+    assert isinstance(r, L.Lite3Error) and len(POSES) == 2, (r, len(POSES))     # but is, in the end
+    del POSES[:]
+
     # placed, but the first global costmap is late (a big floor): say so, not "Nav2 did not finish starting"
     late = nav.COSTMAP_WAIT_S
     nav.COSTMAP_WAIT_S = 0.3

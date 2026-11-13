@@ -261,6 +261,11 @@ The same from the command line: `python3 -m robot.lite3 floors`,
 - **Two steps to start.** Nav2 does not finish starting until AMCL has
   been told where he is, so `load_floor()` returns with him not
   localized, and `set_pose()` returns when he is and Nav2 is ready.
+  A pose not yet taken is said again every 8 s (`POSE_AGAIN_S`), not sooner: each
+  one makes the Orin's localizer search afresh, a search on a big floor takes
+  2.3-2.8 s, and its own fix is too old to be used by the time it arrives, so the
+  first usable fix comes about a second after it. Said again every 3 s, as before,
+  he never got placed on `big_walk_to_arcade` (2026-11-13); said once, in about 7 s.
 - **Which scan.** AMCL and `locate.py` use `/scan_walls`, the lidar cut
   above the furniture ([Lidar and FAST-LIO2 odometry (robot/lio_relay.py)](lidar.md)). The costmaps keep the low `/scan`.
 - **Localized or not** is one node's answer, `robot/locate.py`, on

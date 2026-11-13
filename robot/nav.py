@@ -34,6 +34,7 @@ LOC_STALE_S = 3.0       # locate.py speaks twice a second; quiet this long, he d
                         # goals in a row ended "couldn't get there" (2026-10-15, cause not proven)
 POSE_STD = (0.3, 0.26)  # m, rad: how sure a pose given by hand (a tap on the map) is taken to be
 FIT_POSE_STD = (0.1, 0.1)   # and one checked against the walls (demos/check_map.py's best fit)
+POSE_AGAIN_S = 8.0      # s before a pose not yet taken is said again: longer than the Orin's search (docs/navigation.md)
 ROUTE_TIMEOUT = 300.0   # s for one go_to() at least: 30 m takes about two minutes
 ROUTE_SLOWEST = 0.2     # m/s: longer routes get their length at this speed (135 m took over 300 s, 2026-10-15).
                         # A last resort only: Nav2's progress checker catches him stuck within 10 s.
@@ -516,7 +517,7 @@ class Nav:
             taken = loc is not None and int(loc.state) != locate.NO_POSE and dist((loc.x, loc.y), (x, y)) < 1.0
             # Once whatever he believes (near and wide, after a carry, looks taken); then again
             # until AMCL has it: it may not be listening yet, or still hold an older pose.
-            if said is None or (not taken and time.time() - said > 3.0):
+            if said is None or (not taken and time.time() - said > POSE_AGAIN_S):
                 self._pose_pub.publish(m)
                 said = time.time()
             if taken and self.localized:
