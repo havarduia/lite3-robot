@@ -34,11 +34,18 @@ def sampled(read, value=None):
     return get
 
 
+CLOUD_STALE_S = 1.0     # the newest cloud older than this: the camera has stopped (it sends 10+ a second)
+
+
 class Depth:
     """Needs self._node.cloud and self._wait, both from Lite3."""
 
+    def cloud_fresh(self):
+        n = self._node
+        return n.cloud is not None and time.time() - n.cloud_time <= CLOUD_STALE_S
+
     def wait_cloud(self, timeout=10.0):
-        if not self._wait(lambda: self._node.cloud is not None, timeout):
+        if not self._wait(self.cloud_fresh, timeout):
             raise Lite3Error(
                 'no point cloud. Start the camera with: python3 -m '
                 'robot.protocol camera on   (if it is up but silent, check '
@@ -50,7 +57,8 @@ class Depth:
         """Nearest obstacle per bearing bin: [(bearing_deg, range_m or None), ...],
         +ve = LEFT, in base_link, with the floor and anything above his back dropped.
         """
-        m = self.wait_cloud()
+        # once it has sent, a camera that stops is not waited for: the caller is walking on it
+        m = self.wait_cloud(10.0 if self._node.cloud is None else 0.0)
         f = {fd.name: fd.offset for fd in m.fields}
         if not {'x', 'y', 'z'} <= set(f):
             raise Lite3Error('cloud has no xyz fields')

@@ -143,7 +143,7 @@ class _Node(Node):
         self.state = None
         self.odom = None
         self.odom_time = 0.0        # time.time() of the newest odometry
-        self.cloud = None
+        self.cloud, self.cloud_time = None, 0.0     # the newest, and its time.time()
         self._grid_raw, self._grid = None, (None, None)
         self.local_grid = None      # Nav2's local costmap: a turn on the spot checks it (nav.turn_blocked)
         # Map mode: what robot/locate.py last said, when, and the odometry of that moment.
@@ -157,7 +157,7 @@ class _Node(Node):
         # On a node of its own so it can be read at its own, slower, rate.
         self.cloud_node = Node('lite3_api_cloud')
         self.cloud_node.create_subscription(PointCloud2, '/camera/depth/color/points',
-                                            lambda m: setattr(self, 'cloud', m), best)
+                                            self._cloud_cb, best)
         # Kept as bytes, decoded on use (grid): a floor like the arcade's takes 0.43 s to
         # decode on the Xavier, every 2 s, on the thread that also reads /localized.
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap',
@@ -176,6 +176,9 @@ class _Node(Node):
 
     def _state_cb(self, m):
         self.state = dict(zip(STATE_FIELDS, m.data))
+
+    def _cloud_cb(self, m):
+        self.cloud, self.cloud_time = m, time.time()
 
     def _odom_cb(self, m):
         p, q = m.pose.pose.position, m.pose.pose.orientation
@@ -586,6 +589,8 @@ class Lite3(Nav, Depth):
         """A reason to stop every motion call, whatever it is doing."""
         if self._node.stick_time > since:
             return 'handheld took over - stopped'
+        if self._stop_at > since:
+            return 'cancelled - stopped'
         if not self._odom_fresh():
             return 'odometry stopped arriving - stopped'
         t = self._node.tilt
@@ -736,7 +741,7 @@ class Lite3(Nav, Depth):
             if why:
                 p = self.pose
                 return {'reason': why, 'start': p, 'end': p, 'turned': 0.0}
-            if self._node.cloud is None:
+            if not self.cloud_fresh():
                 print('NOTE: no depth stream - turning without the side check')
             else:
                 side = 0 if radians > 0 else 1          # left, right

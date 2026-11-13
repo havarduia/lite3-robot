@@ -311,7 +311,11 @@ class Nav:
                     'cost_ahead(), not from scan(): the costmap knows about '
                     'obstacles the camera cannot currently see.' % c)
 
-        status = self._goal_wait(self.goal_send(gx, gy, gyaw), timeout)
+        began = time.time()
+        handle = self.goal_send(gx, gy, gyaw)
+        if self._stop_at > began:           # cancelled while Nav2 was taking the goal
+            handle.cancel_goal_async()
+        status = self._goal_wait(handle, timeout)
         if status == SUCCEEDED and heading_deg is not None:
             err = wrap(gyaw - self.wait_pose()[2])
             if abs(err) > math.radians(5):
@@ -397,7 +401,7 @@ class Nav:
         """Ask Nav2 to drop the goal goto() is waiting on, from another
         thread; goto() then returns CANCELED. True if there was one. Nav2
         itself stays up - estop() is the one that kills it."""
-        self._stop_asked = True         # also ends a wait at a closed door, when no goal is out
+        self._stop_at = time.time()     # ends a turn or a walk too, and a Go that has no goal out yet (_safety)
         handle = self._goal_handle
         if handle is None:
             return False
@@ -527,7 +531,7 @@ class Nav:
             x, y, yaw_deg, self.lost_why() or 'Nav2 did not finish starting; see /tmp/nav2.log'))
 
     _plan_client = None
-    _stop_asked = False
+    _stop_at = 0.0          # time.time() of the last goto_cancel() or estop()
 
     _clear_client = None
 
@@ -591,7 +595,7 @@ class Nav:
         panel to speak.
         """
         say = say or (lambda what: None)
-        self._stop_asked = False
+        began = time.time()
         for v in (x, y) if yaw_deg is None else (x, y, yaw_deg):
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
                 raise Lite3Error('a map point is numbers, not %r' % (v,))
@@ -610,11 +614,15 @@ class Nav:
         status = SUCCEEDED
         if dist(here, (x, y)) >= THERE_M:
             route = self.route_to(x, y)
+            if self._stop_at > began:       # cancelled while the planner was asked
+                return CANCELED
             say('start')
             ahead = next((p for p in route if dist(here, p) >= FACE_AT_M), route[-1])
             off = wrap(math.atan2(ahead[1] - here[1], ahead[0] - here[0]) - here[2])
             if abs(off) > FACE_OVER:
                 self.turn(off)
+                if self._stop_at > began:   # cancelled in the turn: no goal goes out
+                    return CANCELED
                 why = self.lost_why()       # a turn takes seconds; he may not know where he is any more
                 if why:
                     raise Lite3Error('lost on the way, stopped: ' + why)
@@ -622,8 +630,10 @@ class Nav:
             length = sum(dist(a, b) for a, b in zip(route, route[1:]))
             end = time.time() + max(timeout, length / ROUTE_SLOWEST)
             for again in (True, False):
-                status = self._goal_wait(self.goal_send(x, y, gyaw, frame='map'), max(0.0, end - time.time()),
-                                         lost=self.lost_why)
+                handle = self.goal_send(x, y, gyaw, frame='map')
+                if self._stop_at > began:   # cancelled while Nav2 was taking the goal
+                    handle.cancel_goal_async()
+                status = self._goal_wait(handle, max(0.0, end - time.time()), lost=self.lost_why)
                 short = dist(self.map_pose, (x, y))
                 if status != SUCCEEDED or short < SHORT_M:
                     break

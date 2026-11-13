@@ -190,6 +190,9 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
+      # StaticLayer reads use_maximum from the costmap, not the layer (Humble). Without this the camera's
+      # depth_layer overwrote the lidar's terrain_layer with its free cells: the lidar drew nothing here.
+      use_maximum: true
       width: 6
       height: 6
       resolution: 0.05
@@ -213,7 +216,6 @@ local_costmap:
         map_topic: /depth_grid
         map_subscribe_transient_local: true
         subscribe_to_updates: false
-        use_maximum: true
         transform_tolerance: 0.3
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer

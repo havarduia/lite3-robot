@@ -246,6 +246,12 @@ def main():
                        or b.walk(5.0, speed=0.5, stop_distance=0.6))
     assert r['reason'].startswith('obstacle at') and 2.2 < r['moved'] < 2.6 and halted, r
     assert all(b - a >= 0.25 - 1e-9 for a, b in zip(reads[1:], reads[2:])), reads    # reads[0] is the pre-flight
+    # a camera that stopped sending: its last picture is not "clear", he does not set off on it
+    r, _, sent = run(lambda b: b.walk(1.0), cloud=object(), cloud_time=-5.0)
+    assert isinstance(r, L.Lite3Error) and 'point cloud' in str(r) and not sent, r
+    # Cancel (and so E-STOP) from another thread ends any motion, not only a Nav2 goal
+    r, halted, _ = run(lambda b: b.walk(5.0, stop_distance=None), at=(1.0, lambda w: w.bot.goto_cancel()))
+    assert r['reason'].startswith('cancelled') and halted and r['moved'] < 0.5, r
 
     # upright(): armed BEFORE waiting for ready, and sat down on the way out even after a crash
     calls = []
@@ -307,6 +313,11 @@ def main():
     pretend_nav2(arrives=None)
     r, halted, _ = run(lambda b: b.go_to_point(2.0, 5.0), at=(9.0, lambda w: w.bot.goto_cancel()), **on_floor())
     assert r == nav.CANCELED and halted, r
+    # cancelled in the turn to face the way, before Nav2 has a goal: the turn ends and no goal goes out
+    before = len(GOALS)
+    r, halted, _ = run(lambda b: (b.go_to_point(2.0, 5.0), b._node.odom[2]),
+                       at=(1.0, lambda w: w.bot.goto_cancel()), **on_floor())
+    assert r[0] == nav.CANCELED and halted and abs(r[1]) < 1.0 and len(GOALS) == before, (r, len(GOALS) - before)
 
     def refused(move, **setup):
         before = len(GOALS)

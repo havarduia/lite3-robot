@@ -174,7 +174,9 @@ class CloudFix:
         state = fix['state']
         if state == FIX_NO_MAP:
             self.map_odom = None
-        elif state == FIX_OK and odom_then is not None:
+        elif state == FIX_OK and odom_then is None:
+            state = FIX_REFUSED     # older than the poses kept: map -> odom stays, and locate.py must not count it
+        elif state == FIX_OK:
             x, y, _, yaw = fix['pose']
             self.map_odom = join((x, y, yaw), inv(odom_then))
         bits = sum(1 << i for i, a in enumerate(FIX_AXES) if a in fix['weak'])
@@ -524,8 +526,8 @@ def demo():
     held = c.map_odom
     c.take(unpack_fix(pack_fix(6, 6, (9, 9, 0, 0), 0.4, 0.2, 0.1, [], (0, 0, 0), FIX_REFUSED)), (1.0, 0.0, 0.0))
     assert c.map_odom == held                              # refused: the last one stands
-    c.take(unpack_fix(pack_fix(7, 7, (9, 9, 0, 0), 0.9, 0.9, 0.05, [], (0, 0, 0), FIX_OK)), None)
-    assert c.map_odom == held                              # its moment not in the odometry kept: not used
+    row = c.take(unpack_fix(pack_fix(7, 7, (9, 9, 0, 0), 0.9, 0.9, 0.05, [], (0, 0, 0), FIX_OK)), None)
+    assert c.map_odom == held and row[0] == FIX_REFUSED    # its moment not in the odometry kept: not used, and says so
     row = c.take(unpack_fix(pack_fix(8, 8, (0, 0, 0, 0), 0, 0, 0, FIX_AXES, (0, 0, 0), FIX_NO_MAP)), (1.0, 0.0, 0.0))
     assert c.map_odom is None and math.isnan(row[1])      # unloaded: no map -> odom from here (AMCL's job)
     print('lio_relay ok')

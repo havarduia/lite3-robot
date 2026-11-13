@@ -252,7 +252,8 @@ class Robot:
 
     def cancel(self, why='from the panel'):
         """End a Go that is under way. Nav2 stays up, unlike E-STOP."""
-        going = self.bot.goto_cancel()
+        # a Go has no goal out while it plans and turns to face the way: busy says it is one
+        going = self.bot.goto_cancel() or (self.busy or '').startswith('goto')
         if going:
             self.log('cancelled ' + why, 'warn')
         return going
@@ -486,7 +487,7 @@ class Robot:
         try:
             self.scan = [[b, None if rr is None else round(rr, 2)]
                          for b, rr in self.bot.scan()] \
-                if self.services['camera'] and self.bot._node.cloud is not None else None
+                if self.services['camera'] and self.bot.cloud_fresh() else None
         except Exception:
             self.scan = None
 
