@@ -81,6 +81,7 @@ def main():
     from nav2_msgs.action import NavigateToPose
     from nav_msgs.msg import OccupancyGrid, Odometry, Path
     from rclpy.action import ActionClient
+    from rclpy.executors import ExternalShutdownException
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from rclpy.time import Time
     from rclpy.duration import Duration
@@ -213,8 +214,12 @@ def main():
         blind = now - min(s['depth_at'], s['terrain_at'], *s['sonar_at']) > SENSORS_STALE_S
         if blind != s['blind']:
             s['blind'] = blind
-            (log.warn if blind else log.info)('camera, sonars or /terrain_h stopped coming: no commands go back'
-                                              if blind else 'camera, sonars and /terrain_h coming')
+            # two calls: rclpy raises if one call site logs at two severities, and that ended this node
+            # the first time the gate tripped
+            if blind:
+                log.warn('camera, sonars or /terrain_h stopped coming: no commands go back')
+            else:
+                log.info('camera, sonars and /terrain_h coming')
         if not blind:
             tell(CMD.pack(b'V', c.linear.x, c.linear.y, c.angular.z))
 
@@ -313,7 +318,7 @@ def main():
     threading.Thread(target=read, args=(FIX_LOCAL_PORT, lambda h: h == '127.0.0.1'), daemon=True).start()
     try:
         rclpy.spin(node)
-    except Exception:       # KeyboardInterrupt, or rclpy's ExternalShutdownException on SIGTERM
+    except (KeyboardInterrupt, ExternalShutdownException):      # SIGTERM; anything else shows its traceback
         pass
     finally:
         cancel()
