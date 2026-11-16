@@ -1,0 +1,62 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{deeprobotics}
+\citation{ros2}
+\citation{anymal}
+\citation{cmu}
+\citation{fastlio2}
+\citation{icp}
+\citation{nav2}
+\citation{rpp}
+\citation{mppi}
+\citation{robotloc}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Background}{1}{section.2}\protected@file@percent }
+\citation{realsense}
+\citation{livox}
+\@writefile{toc}{\contentsline {section}{\numberline {3}System Overview}{2}{section.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces The robot's computers, sensors and network. The Orin also provided internet access to the other computers over the campus Wi-Fi.}}{2}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:hardware}{{1}{2}{The robot's computers, sensors and network. The Orin also provided internet access to the other computers over the campus Wi-Fi}{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}The Lite3 Class}{2}{section.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Structure of the \texttt  {Lite3} class and the programs built on it. Commands reached the motion computer as raw UDP frames or as ROS~2 velocity messages through the vendor bridge.}}{3}{figure.caption.2}\protected@file@percent }
+\newlabel{fig:lite3}{{2}{3}{Structure of the \texttt {Lite3} class and the programs built on it. Commands reached the motion computer as raw UDP frames or as ROS~2 velocity messages through the vendor bridge}{figure.caption.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Posture and arming}{3}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Motion and stopping}{3}{subsection.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces The single motion loop shared by all motion calls. Every exit passed through the zero-velocity burst.}}{3}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:loop}{{3}{3}{The single motion loop shared by all motion calls. Every exit passed through the zero-velocity burst}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Perception and Odometry}{3}{section.5}\protected@file@percent }
+\newlabel{sec:odom}{{5}{3}{Perception and Odometry}{section.5}{}}
+\citation{smac}
+\citation{cmu}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces How the odometry and the map position were formed. The legs gave the rate, FAST-LIO2 removed their drift, and the cloud localizer placed the odometry frame on the map.}}{4}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:odom}{{4}{4}{How the odometry and the map position were formed. The legs gave the rate, FAST-LIO2 removed their drift, and the cloud localizer placed the odometry frame on the map}{figure.caption.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Mapping and Localization}{4}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Navigation}{4}{section.7}\protected@file@percent }
+\citation{kokoro}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Map-mode navigation. The perception computer kept the map, the goal interface and the final say over the legs; the Orin planned and controlled. The link between them was UDP.}}{5}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:nav}{{5}{5}{Map-mode navigation. The perception computer kept the map, the goal interface and the final say over the legs; the Orin planned and controlled. The link between them was UDP}{figure.caption.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Operator Interface and Speech}{5}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Testing and Results}{5}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}Further Work}{5}{section.10}\protected@file@percent }
+\newlabel{sec:further}{{10}{5}{Further Work}{section.10}{}}
+\bibcite{deeprobotics}{1}
+\bibcite{ros2}{2}
+\bibcite{realsense}{3}
+\bibcite{livox}{4}
+\bibcite{fastlio2}{5}
+\bibcite{icp}{6}
+\bibcite{nav2}{7}
+\bibcite{smac}{8}
+\bibcite{mppi}{9}
+\bibcite{cmu}{10}
+\bibcite{anymal}{11}
+\bibcite{rpp}{12}
+\bibcite{robotloc}{13}
+\bibcite{kokoro}{14}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Measured results. Navigation times are from goal sent to goal reached.}}{6}{table.caption.6}\protected@file@percent }
+\newlabel{tab:results}{{1}{6}{Measured results. Navigation times are from goal sent to goal reached}{table.caption.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11}Conclusion}{6}{section.11}\protected@file@percent }
+\gdef \@abspage@last{7}

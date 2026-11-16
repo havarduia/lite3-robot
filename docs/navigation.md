@@ -152,6 +152,13 @@ for the collision monitor, `/depth_points`. The sonars (`/sonar/front`, `/sonar/
 are not in the costmap: their ~30° cone draws walls too wide in doorways, so the front
 one only stops or slows him in the collision monitor (glass). If the camera or a sonar
 stops for 1 s, the Orin sends no commands, so perception publishes zeros.
+A sonar at its maximum (0.80 m) saw nothing and is published as `inf`, which the collision
+monitor skips. Until 2026-11-16 it went out as a reading: an arc 1.0 m ahead of base_link. The
+monitor moves each reading by how far he has walked since its stamp, and its sonar readings are
+0.3-0.6 s old (stamped with the last lidar scan, then queued behind the monitor's wait for the
+transform), so at 0.5 m/s the arc slid 0.26 m back into the slow zone (ends at 0.75 m): about 400
+half-speed slowdowns of 0.1-0.5 s per bridge walk (bridge2_nov13: 814 of 819 slowed commands had
+the sonar at 0.80; the lidar and camera never had a point in the zone), none standing still.
 Why the short memory: on the bridge (2026-11-04) afternoon sun glare on the glossy floor
 appeared as an obstacle 0.5 m ahead; with 15 s memory he stepped onto it and stood stuck
 ~20 s, the camera unable to see under him to clear it.

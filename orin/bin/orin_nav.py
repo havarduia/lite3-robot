@@ -275,7 +275,9 @@ def main():
         # the newest odom stamp, not now(): see shadow_nav.py (mppi_drive3)
         r.header.stamp, r.header.frame_id = s['stamp'], 'sonar_' + SONARS[i][0]
         r.radiation_type, r.field_of_view = Range.ULTRASOUND, fov
-        r.min_range, r.max_range, r.range = lo, hi, rng
+        # at its maximum the sonar saw nothing: inf (REP 117), which the collision monitor skips. As a
+        # reading it became an arc 1 m ahead that an old stamp pulled into the slow zone (docs/navigation.md)
+        r.min_range, r.max_range, r.range = lo, hi, rng if rng < hi else math.inf
         sonar_pubs[i].publish(r)
         s['sonar_at'][i] = time.monotonic()
 
