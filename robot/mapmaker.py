@@ -62,7 +62,7 @@ def _wait(test, seconds, what):
 
 def _stop(name):
     if live('state').get('running'):
-        live('stop', name=name)
+        live('stop', name=name, one_floor=True)
         _wait(lambda: not live('state').get('running'), WAIT_S, 'stop its run')
 
 

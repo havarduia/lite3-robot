@@ -432,7 +432,7 @@ textarea { display: block; width: 100%; min-height: 76px; margin: 12px 0; resize
         <span class="unit">Go to</span>
         <span id="place-keys" class="line"></span>
       </div>
-      <div class="line" id="map-save" hidden>
+      <div class="line" id="place-save-line" hidden>
         <input id="place-name" type="text" placeholder="place name" aria-label="name of the place to save" autocapitalize="off" spellcheck="false">
         <button class="key" id="place-save">Save his spot</button>
       </div>
@@ -769,7 +769,7 @@ function mapStatus(s) {
   }
   for (const b of keys.children) b.disabled = !!(m && m.why) || !!s.busy;
   $('map-places').hidden = !names.length;
-  $('map-save').hidden = !m || !!m.why;
+  $('place-save-line').hidden = !m || !!m.why;
   $('map-state').textContent = !m ? 'No floor' : m.why ? m.floor + ': not placed' : m.floor;
   $('map-state').className = 'lamp' + (!m ? ' off' : m.why ? ' busy' : '');
   drawMap();

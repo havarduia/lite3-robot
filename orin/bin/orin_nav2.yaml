@@ -187,6 +187,8 @@ local_costmap:
     ros__parameters:
       update_frequency: 10.0
       publish_frequency: 2.0
+      # else only /costmap_updates comes while he stands still, and rviz (which is sent the full grid) shows none
+      always_send_full_costmap: true
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true

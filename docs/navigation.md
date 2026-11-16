@@ -144,14 +144,13 @@ status (or 20 s without the Orin taking it, which covers its Nav2 still starting
 
 terrainAnalysis gives each lidar point its height over the local ground (so a slope is not a
 wall) and keeps its own memory: points fade after 2 s unless seen again, except within
-`noDecayDis` of him, where they never fade. That radius is 0.6 m (`orin/bin/nav.sh`), just over
-the 0.5 m the lidar cannot see around itself. It was 1.5 m until 2026-11-16: that day a 2 x 1.5 m
-blob drawn behind the start spot as he turned stayed for as long as he was within 1.5 m of it,
-with the live `/scan` showing the place empty, and boxed him in (17 optimizer fails, two goals
-moved him 5 m and 2 m; sonarfix_nov16). A replay of that bag with 0.6 m: the blob is gone, the
-gap he tried to leave through goes from about 0.6 m to 1.0 m, and what stays is what the lidar
-keeps seeing. The price: a thing 0.6-1.5 m beside or behind him is forgotten after 2 s if the
-lidar does not see that way.
+`noDecayDis` of him (1.5 m, `orin/bin/nav.sh`), where they never fade. That memory cannot un-see:
+on 2026-11-16 a 2 x 1.5 m blob drawn behind the start spot as he turned (most likely someone
+standing there who then stepped away) stayed for as long as he was within 1.5 m of it, with the
+live `/scan` showing the place empty, and boxed him in (sonarfix_nov16). 0.6 m was tried the same
+day: a replay showed the blob gone, but on the robot he walked into things, and standing at the
+start he had 11 obstacle points within 1.2 m where 1.5 m gave about 300 (nodecay_nov16), so it
+was put back. Until this is solved properly: nobody within 1.5 m of him when he starts a walk.
 
 The Orin's local costmap has the lidar (CMU terrainAnalysis, `clearDyObs` on) and, from
 perception, the depth camera: `orin_nav.py` gets the voxels perception's own STVL keeps
