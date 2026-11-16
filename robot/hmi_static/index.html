@@ -1003,7 +1003,12 @@ $('place-save').addEventListener('click', () => {
   $('place-name').value = '';
 });
 $('floor-load').addEventListener('click', () => { if ($('floor').value) send({ cmd: 'floor', floor: $('floor').value }); });
-const mapName = () => $('map-name').value.trim();
+// phone keyboards add spaces and turn - into a long dash: clean the name and show what was kept
+const mapName = () => {
+  const n = $('map-name').value.trim().replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+  $('map-name').value = n;
+  return n;
+};
 $('map-record').addEventListener('click', () => send({ cmd: 'map_record' }));
 $('map-cancel').addEventListener('click', () => send({ cmd: 'map_cancel' }));
 $('map-save').addEventListener('click', () => {
