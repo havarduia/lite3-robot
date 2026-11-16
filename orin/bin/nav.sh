@@ -32,7 +32,7 @@ run)
     {
         ~/cmu_ws/install/lite3_terrain/lib/lite3_terrain/terrain_level >> $log 2>&1 & echo $!
         ~/cmu_ws/install/terrain_analysis/lib/terrain_analysis/terrainAnalysis --ros-args $ta \
-            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=1.5 -p vehicleHeight:=0.7 -p clearDyObs:=true >> $log 2>&1 & echo $!
+            -p maxElevBelowVeh:=-0.9 -p noDecayDis:=0.6 -p vehicleHeight:=0.7 -p clearDyObs:=true >> $log 2>&1 & echo $!
         python3 orin_nav.py >> $log 2>&1 & echo $!
         L=/opt/ros/humble/lib
         $L/nav2_map_server/map_server $P -p yaml_filename:=$map >> $log 2>&1 & echo $!

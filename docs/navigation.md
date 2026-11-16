@@ -142,6 +142,17 @@ without hearing perception, and perception ends its goal after 2 s without the O
 status (or 20 s without the Orin taking it, which covers its Nav2 still starting).
 `ORIN_NAV_DRY=1` runs everything without publishing `/cmd_vel`, for a check at the bench.
 
+terrainAnalysis gives each lidar point its height over the local ground (so a slope is not a
+wall) and keeps its own memory: points fade after 2 s unless seen again, except within
+`noDecayDis` of him, where they never fade. That radius is 0.6 m (`orin/bin/nav.sh`), just over
+the 0.5 m the lidar cannot see around itself. It was 1.5 m until 2026-11-16: that day a 2 x 1.5 m
+blob drawn behind the start spot as he turned stayed for as long as he was within 1.5 m of it,
+with the live `/scan` showing the place empty, and boxed him in (17 optimizer fails, two goals
+moved him 5 m and 2 m; sonarfix_nov16). A replay of that bag with 0.6 m: the blob is gone, the
+gap he tried to leave through goes from about 0.6 m to 1.0 m, and what stays is what the lidar
+keeps seeing. The price: a thing 0.6-1.5 m beside or behind him is forgotten after 2 s if the
+lidar does not see that way.
+
 The Orin's local costmap has the lidar (CMU terrainAnalysis, `clearDyObs` on) and, from
 perception, the depth camera: `orin_nav.py` gets the voxels perception's own STVL keeps
 (`/local_costmap/voxel_grid`, 5 Hz, 0.08–0.7 m above the floor (under his normal-gait step), 2.5 s memory) placed
